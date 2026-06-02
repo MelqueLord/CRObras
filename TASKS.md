@@ -44,13 +44,14 @@
 40. Adicionar ordenacao de parcelas por vencimento/status.
 41. Adicionar filtro de extrato por fornecedor.
 42. Adicionar exportacao CSV do extrato financeiro filtrado.
+43. Adicionar indicadores visuais de carregamento por painel.
 
 ## Ajustes Implementados Agora
 
-1. Adicionada exportacao CSV do extrato financeiro filtrado.
-2. Exportacao usa os dados ja filtrados em memoria, sem chamada adicional para a API.
-3. CSV inclui data, tipo, categoria, fornecedor, descricao, valor e status.
+1. Adicionados indicadores de carregamento por painel.
+2. Painel lateral, resumo da obra, vinculos, socios, financeiro, venda e encerramento exibem carregamento proprio.
+3. Indicadores usam estado local e nao adicionam chamadas extras para a API.
 
 ## Proximas Tasks Recomendadas
 
-43. Adicionar indicadores visuais de carregamento por painel.
+44. Adicionar atalhos de acao rapida para obras recentes.

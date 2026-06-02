@@ -164,6 +164,14 @@ function confirmarAcao(message: string) {
   return window.confirm(message);
 }
 
+function LoadingStrip({ label = 'Carregando...' }: { label?: string }) {
+  return (
+    <div className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-500">
+      {label}
+    </div>
+  );
+}
+
 type ApiOptions = RequestInit & { silent?: boolean; timeoutMs?: number };
 
 async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -317,6 +325,9 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const [socios, setSocios] = useState<Socio[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [parcelasPendentes, setParcelasPendentes] = useState<ParcelaPendente[]>([]);
+  const [loadingObras, setLoadingObras] = useState(true);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
+  const [loadingParcelas, setLoadingParcelas] = useState(true);
   const [selectedObraId, setSelectedObraId] = useState('');
   const [activeTab, setActiveTab] = useState('resumo');
   const [buscaObra, setBuscaObra] = useState('');
@@ -361,6 +372,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   }, [obrasFiltradas, ordenacaoObras]);
 
   async function load() {
+    setLoadingObras(true);
     try {
       const obrasData = await api<Obra[]>('/api/obras');
       setObras(obrasData);
@@ -368,11 +380,21 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
       onError('');
     } catch (err) {
       onError((err as Error).message);
+    } finally {
+      setLoadingObras(false);
     }
 
     void api<Socio[]>('/api/socios', { silent: true }).then(setSocios).catch(() => undefined);
-    void api<Dashboard>('/api/dashboard/resumo', { silent: true }).then(setDashboard).catch(() => undefined);
-    void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes', { silent: true }).then(setParcelasPendentes).catch(() => undefined);
+    setLoadingDashboard(true);
+    void api<Dashboard>('/api/dashboard/resumo', { silent: true })
+      .then(setDashboard)
+      .catch(() => undefined)
+      .finally(() => setLoadingDashboard(false));
+    setLoadingParcelas(true);
+    void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes', { silent: true })
+      .then(setParcelasPendentes)
+      .catch(() => undefined)
+      .finally(() => setLoadingParcelas(false));
   }
 
   function addObra(obra: Obra) {
@@ -401,6 +423,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[300px_1fr]">
       <aside className="space-y-4">
         <Panel title="Resumo geral">
+          {loadingDashboard && !dashboard && <LoadingStrip />}
           <div className="grid grid-cols-2 gap-3">
             <Metric label="Saldo" value={money(dashboard?.saldoTotal ?? 0)} />
             <Metric label="Obras ativas" value={String(dashboard?.obrasAtivas ?? 0)} />
@@ -409,6 +432,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
           </div>
         </Panel>
         <Panel title="Recebiveis">
+          {loadingParcelas && parcelasPendentes.length === 0 && <LoadingStrip />}
           <div className="grid grid-cols-2 gap-3">
             <Metric label="Vencidas" value={String(parcelasVencidas.length)} />
             <Metric label="Valor vencido" value={money(valorVencido)} />
@@ -422,7 +446,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                 <span className="text-xs opacity-75">{parcela.dataVencimento} · {money(parcela.valor)} · {parcela.status}</span>
               </button>
             ))}
-            {parcelasPendentes.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma parcela pendente.</p>}
+            {!loadingParcelas && parcelasPendentes.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma parcela pendente.</p>}
           </div>
         </Panel>
         <Panel title="Obras">
@@ -448,6 +472,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
           </select>
           <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
           <div className="mt-3 space-y-2">
+            {loadingObras && obras.length === 0 && <LoadingStrip />}
             {obrasVisiveis.map((obra) => (
               <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); }}>
                 <span className="flex items-start justify-between gap-2">
@@ -459,7 +484,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                 <span className="mt-1 block text-xs opacity-75">{money(obra.saldoAtual)}</span>
               </button>
             ))}
-            {obras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Crie uma obra para comecar.</p>}
+            {!loadingObras && obras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Crie uma obra para comecar.</p>}
             {obras.length > 0 && obrasVisiveis.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma obra encontrada.</p>}
           </div>
         </Panel>
@@ -496,7 +521,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
           </>
         ) : (
           <Panel title="Nenhuma obra selecionada">
-            <p className="text-sm text-zinc-500">Crie ou selecione uma obra no menu lateral.</p>
+            {loadingObras ? <LoadingStrip /> : <p className="text-sm text-zinc-500">Crie ou selecione uma obra no menu lateral.</p>}
           </Panel>
         )}
       </section>
@@ -506,13 +531,18 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
 
 function ResumoFinanceiroObra({ obraId }: { obraId: string }) {
   const [resumo, setResumo] = useState<ResumoFinanceiro | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api<ResumoFinanceiro>(`/api/obras/${obraId}/resumo-financeiro`, { silent: true }).then(setResumo).catch(() => setResumo(null));
+    setLoading(true);
+    api<ResumoFinanceiro>(`/api/obras/${obraId}/resumo-financeiro`, { silent: true })
+      .then(setResumo)
+      .catch(() => setResumo(null))
+      .finally(() => setLoading(false));
   }, [obraId]);
 
   if (!resumo) {
-    return <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Resumo financeiro ainda nao carregado.</p>;
+    return loading ? <LoadingStrip /> : <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Resumo financeiro ainda nao carregado.</p>;
   }
 
   return (
@@ -660,11 +690,18 @@ function SocioForm({ onDone }: { onDone: () => void }) {
 
 function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; onDone: () => void }) {
   const [vinculos, setVinculos] = useState<ObraSocio[]>([]);
+  const [loadingVinculos, setLoadingVinculos] = useState(true);
   const [socioId, setSocioId] = useState('');
   const [percentual, setPercentual] = useState('50');
   const [error, setError] = useState('');
   const canSubmit = !isBlank(socioId) && isPercentualValido(percentual);
-  useEffect(() => { api<ObraSocio[]>(`/api/obras/${obra.id}/socios`, { silent: true }).then(setVinculos).catch(() => setVinculos([])); }, [obra.id]);
+  useEffect(() => {
+    setLoadingVinculos(true);
+    api<ObraSocio[]>(`/api/obras/${obra.id}/socios`, { silent: true })
+      .then(setVinculos)
+      .catch(() => setVinculos([]))
+      .finally(() => setLoadingVinculos(false));
+  }, [obra.id]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!socioId) {
@@ -698,10 +735,11 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
         <button className="btn-primary" disabled={!canSubmit}>Vincular socio</button>
       </form>
       <div className="space-y-2">
+        {loadingVinculos && vinculos.length === 0 && <LoadingStrip />}
         {vinculos.map((vinculo) => (
           <PercentualEditor key={vinculo.socioId} vinculo={vinculo} onSave={atualizarPercentual} />
         ))}
-        {vinculos.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum socio vinculado.</p>}
+        {!loadingVinculos && vinculos.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum socio vinculado.</p>}
       </div>
     </div>
   );
@@ -709,9 +747,15 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
 
 function SociosEditor({ onDone }: { onDone: () => void }) {
   const [socios, setSocios] = useState<Socio[]>([]);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
-    setSocios(await api<Socio[]>('/api/socios', { silent: true }));
+    setLoading(true);
+    try {
+      setSocios(await api<Socio[]>('/api/socios', { silent: true }));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { void load(); }, []);
@@ -736,6 +780,7 @@ function SociosEditor({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="mt-3 space-y-2">
+      {loading && socios.length === 0 && <LoadingStrip />}
       {socios.map((socio) => <SocioEditor key={socio.id} socio={socio} onSave={save} onRemove={remove} />)}
     </div>
   );
@@ -791,6 +836,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   const [movs, setMovs] = useState<Movimento[]>([]);
   const [socios, setSocios] = useState<ObraSocio[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
+  const [loadingMovs, setLoadingMovs] = useState(true);
   const [valor, setValor] = useState('');
   const [descricao, setDescricao] = useState('');
   const [socioId, setSocioId] = useState('');
@@ -805,8 +851,13 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   const [dataFinal, setDataFinal] = useState('');
   const [error, setError] = useState('');
   async function loadFinanceiro() {
-    const movimentacoesData = await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`, { silent: true });
-    setMovs(movimentacoesData);
+    setLoadingMovs(true);
+    try {
+      const movimentacoesData = await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`, { silent: true });
+      setMovs(movimentacoesData);
+    } finally {
+      setLoadingMovs(false);
+    }
     void api<ObraSocio[]>(`/api/obras/${obraId}/socios`, { silent: true }).then(setSocios).catch(() => undefined);
     void api<Fornecedor[]>('/api/fornecedores', { silent: true }).then(setFornecedores).catch(() => undefined);
   }
@@ -967,6 +1018,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
         totalSaidas={totalSaidasFiltradas}
       />
       <div className="mt-3 overflow-auto">
+        {loadingMovs && movs.length === 0 && <LoadingStrip />}
         <table className="w-full text-left text-sm">
           <thead>
             <tr>
@@ -991,7 +1043,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
                 </td>
               </tr>
             ))}
-            {movsFiltradas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={7}>Nenhuma movimentacao encontrada.</td></tr>}
+            {!loadingMovs && movsFiltradas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={7}>Nenhuma movimentacao encontrada.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1048,6 +1100,7 @@ function RelatorioExtrato({ movimentos, dataInicial, dataFinal, totalEntradas, t
 
 function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [venda, setVenda] = useState<Venda | null>(null);
+  const [loadingVenda, setLoadingVenda] = useState(true);
   const [comprador, setComprador] = useState('');
   const [valor, setValor] = useState('');
   const [entrada, setEntrada] = useState('');
@@ -1061,7 +1114,13 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [parcelasGerar, setParcelasGerar] = useState('1');
   const [ordenacaoParcelas, setOrdenacaoParcelas] = useState('vencimentoAsc');
   const [error, setError] = useState('');
-  useEffect(() => { api<Venda>(`/api/obras/${obraId}/venda`, { silent: true }).then(setVenda).catch(() => setVenda(null)); }, [obraId]);
+  useEffect(() => {
+    setLoadingVenda(true);
+    api<Venda>(`/api/obras/${obraId}/venda`, { silent: true })
+      .then(setVenda)
+      .catch(() => setVenda(null))
+      .finally(() => setLoadingVenda(false));
+  }, [obraId]);
   const temParcelamentoInicial = !isBlank(parcelasIniciaisValor) || !isBlank(parcelasIniciaisQtd);
   const parcelamentoInicialValido = !temParcelamentoInicial || (isPositive(parcelasIniciaisValor) && Number.isInteger(toNumber(parcelasIniciaisQtd)) && toNumber(parcelasIniciaisQtd) > 0 && !isBlank(parcelasIniciaisVencimento));
   const canCriarVenda = !isBlank(comprador) && isPositive(valor) && (isBlank(entrada) || (isNonNegative(entrada) && toNumber(entrada) <= toNumber(valor))) && parcelamentoInicialValido;
@@ -1158,7 +1217,9 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   }
   return (
     <Panel title="Venda, parcelas e permuta">
-      {!venda ? (
+      {loadingVenda && !venda ? (
+        <LoadingStrip />
+      ) : !venda ? (
         <div className="grid gap-2">
           <input className="input" value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Comprador" />
           <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor total" />
@@ -1235,23 +1296,37 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
 
 function Encerramento({ obra, onDone }: { obra: Obra; onDone: () => void }) {
   const [pre, setPre] = useState<PreFechamento | null>(null);
-  async function carregar() { setPre(await api<PreFechamento>(`/api/obras/${obra.id}/pre-fechamento`)); }
+  const [loading, setLoading] = useState(false);
+  async function carregar() {
+    setLoading(true);
+    try {
+      setPre(await api<PreFechamento>(`/api/obras/${obra.id}/pre-fechamento`, { silent: true }));
+    } finally {
+      setLoading(false);
+    }
+  }
   async function encerrar() {
     if (!confirmarAcao('Encerrar esta obra definitivamente? Depois disso nenhuma movimentacao financeira podera ser adicionada.')) {
       return;
     }
-    await api(`/api/obras/${obra.id}/encerrar`, { method: 'POST', body: JSON.stringify({ observacao: 'Encerrado pelo sistema' }) });
-    await carregar();
-    onDone();
+    setLoading(true);
+    try {
+      await api(`/api/obras/${obra.id}/encerrar`, { method: 'POST', body: JSON.stringify({ observacao: 'Encerrado pelo sistema' }) });
+      await carregar();
+      onDone();
+    } finally {
+      setLoading(false);
+    }
   }
   return (
     <Panel title="Encerramento">
       <div className="no-print mb-4 flex flex-wrap gap-2">
-        <button className="btn-secondary" onClick={carregar}>Gerar previa</button>
+        <button className="btn-secondary" disabled={loading} onClick={carregar}>Gerar previa</button>
         <button className="btn-secondary" disabled={!pre} onClick={() => window.print()}>Imprimir</button>
-        <button className="btn-primary" disabled={!pre || pre.pendencias.length > 0 || obra.status === 4} onClick={encerrar}>Encerrar obra</button>
+        <button className="btn-primary" disabled={loading || !pre || pre.pendencias.length > 0 || obra.status === 4} onClick={encerrar}>Encerrar obra</button>
       </div>
-      {!pre && <p className="text-sm text-zinc-500">Gere a previa para conferir totais, pendencias e distribuicao antes do encerramento.</p>}
+      {loading && <LoadingStrip />}
+      {!loading && !pre && <p className="text-sm text-zinc-500">Gere a previa para conferir totais, pendencias e distribuicao antes do encerramento.</p>}
       {pre && <RelatorioFechamento obra={obra} pre={pre} />}
     </Panel>
   );
