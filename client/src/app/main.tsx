@@ -16,7 +16,6 @@ type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; v
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
 type PreFechamento = { totalInvestido: number; totalGasto: number; totalRecebido: number; valorPermutasEstimado: number; resultadoFinanceiro: number; saldoAtual: number; pendencias: string[]; distribuicoes: { socioNome: string; valorInvestido: number; valorResultado: number; valorAReceberOuPagar: number }[] };
-type Bootstrap = { obras: Obra[]; socios: Socio[]; dashboard: Dashboard; parcelasPendentes: ParcelaPendente[] };
 
 const categoriasDespesa = [
   { value: 1, label: 'Material' },
@@ -299,17 +298,26 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
 
   async function load() {
     try {
-      const { obras: obrasData, socios: sociosData, dashboard: dashData, parcelasPendentes: parcelasData } =
-        await api<Bootstrap>('/api/dashboard/bootstrap');
+      const obrasData = await api<Obra[]>('/api/obras');
       setObras(obrasData);
-      setSocios(sociosData);
-      setDashboard(dashData);
-      setParcelasPendentes(parcelasData);
       setSelectedObraId((current) => current || obrasData[0]?.id || '');
       onError('');
     } catch (err) {
       onError((err as Error).message);
     }
+
+    void api<Socio[]>('/api/socios').then(setSocios).catch((err) => onError((err as Error).message));
+    void api<Dashboard>('/api/dashboard/resumo').then(setDashboard).catch((err) => onError((err as Error).message));
+    void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes').then(setParcelasPendentes).catch((err) => onError((err as Error).message));
+  }
+
+  function addObra(obra: Obra) {
+    setObras((current) => current.some((item) => item.id === obra.id) ? current : [...current, obra]);
+    setSelectedObraId(obra.id);
+    setActiveTab('resumo');
+    setDashboard((current) => current
+      ? { ...current, obrasAtivas: current.obrasAtivas + 1, saldoTotal: current.saldoTotal + obra.saldoAtual }
+      : current);
   }
 
   useEffect(() => { void load(); }, []);
@@ -354,7 +362,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
           </div>
         </Panel>
         <Panel title="Obras">
-          <ObraForm onDone={load} />
+          <ObraForm onCreated={addObra} />
           <input className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
           <select className="input mt-2" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
             <option value="nome">Ordenar por nome</option>
@@ -461,7 +469,7 @@ function ObraHeader({ obra }: { obra: Obra }) {
   );
 }
 
-function ObraForm({ onDone }: { onDone: () => void }) {
+function ObraForm({ onCreated }: { onCreated: (obra: Obra) => void }) {
   const [nome, setNome] = useState('');
   const [error, setError] = useState('');
   const canSubmit = !isBlank(nome);
@@ -472,9 +480,9 @@ function ObraForm({ onDone }: { onDone: () => void }) {
       return;
     }
     setError('');
-    await api('/api/obras', { method: 'POST', body: JSON.stringify({ nome, descricao: '', endereco: '', dataInicio: today(), dataPrevistaConclusao: null, status: 2 }) });
+    const obra = await api<Obra>('/api/obras', { method: 'POST', body: JSON.stringify({ nome, descricao: '', endereco: '', dataInicio: today(), dataPrevistaConclusao: null, status: 2 }) });
     setNome('');
-    onDone();
+    onCreated(obra);
   }
   return (
     <form onSubmit={submit} className="space-y-2">
