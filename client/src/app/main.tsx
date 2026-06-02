@@ -16,6 +16,7 @@ type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; v
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
 type PreFechamento = { totalInvestido: number; totalGasto: number; totalRecebido: number; valorPermutasEstimado: number; resultadoFinanceiro: number; saldoAtual: number; pendencias: string[]; distribuicoes: { socioNome: string; valorInvestido: number; valorResultado: number; valorAReceberOuPagar: number }[] };
+type Bootstrap = { obras: Obra[]; socios: Socio[]; dashboard: Dashboard; parcelasPendentes: ParcelaPendente[] };
 
 const categoriasDespesa = [
   { value: 1, label: 'Material' },
@@ -298,12 +299,8 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
 
   async function load() {
     try {
-      const [obrasData, sociosData, dashData, parcelasData] = await Promise.all([
-        api<Obra[]>('/api/obras'),
-        api<Socio[]>('/api/socios'),
-        api<Dashboard>('/api/dashboard/resumo'),
-        api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes')
-      ]);
+      const { obras: obrasData, socios: sociosData, dashboard: dashData, parcelasPendentes: parcelasData } =
+        await api<Bootstrap>('/api/dashboard/bootstrap');
       setObras(obrasData);
       setSocios(sociosData);
       setDashboard(dashData);
