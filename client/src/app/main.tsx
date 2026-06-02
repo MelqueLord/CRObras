@@ -223,13 +223,14 @@ function AuthScreen({ onToken }: { onToken: (token: string) => void }) {
   const [nome, setNome] = useState('Admin');
   const [email, setEmail] = useState('admin@crobras.local');
   const [password, setPassword] = useState('123456');
+  const [registrationCode, setRegistrationCode] = useState('');
   const [error, setError] = useState('');
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError('');
     try {
-      const body = mode === 'login' ? { email, password } : { nome, email, password };
+      const body = mode === 'login' ? { email, password } : { nome, email, password, registrationCode };
       const result = await api<{ token: string }>(`/api/auth/${mode}`, { method: 'POST', body: JSON.stringify(body) });
       onToken(result.token);
     } catch (err) {
@@ -245,6 +246,7 @@ function AuthScreen({ onToken }: { onToken: (token: string) => void }) {
         {mode === 'register' && <Field label="Nome" value={nome} onChange={setNome} />}
         <Field label="Email" type="email" value={email} onChange={setEmail} />
         <Field label="Senha" type="password" value={password} onChange={setPassword} />
+        {mode === 'register' && <Field label="Codigo de cadastro" value={registrationCode} onChange={setRegistrationCode} />}
         {error && <p className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <button className="btn-primary w-full" type="submit">{mode === 'login' ? 'Entrar' : 'Criar conta'}</button>
         <button className="mt-3 w-full text-sm text-zinc-600" type="button" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>

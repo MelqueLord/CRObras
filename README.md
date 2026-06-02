@@ -64,3 +64,7 @@ Usuario de desenvolvimento criado automaticamente:
 dotnet build CRObras.sln
 dotnet test CRObras.sln
 ```
+
+## Publicacao
+
+O passo a passo para publicar em Supabase, Render e Vercel esta em [DEPLOY.md](DEPLOY.md).

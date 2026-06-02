@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: crobras-api
+    runtime: docker
+    dockerfilePath: ./src/CRObras.Api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ApplyMigrations
+        value: true
+      - key: Jwt__Issuer
+        value: CRObras
+      - key: Jwt__Audience
+        value: CRObras.Web
+      - key: Jwt__Key
+        sync: false
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: FrontendOrigins
+        sync: false
+      - key: Auth__RegistrationCode
+        sync: false

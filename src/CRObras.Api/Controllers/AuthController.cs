@@ -16,6 +16,12 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, ICo
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
     {
+        var registrationCode = configuration["Auth:RegistrationCode"];
+        if (!string.IsNullOrWhiteSpace(registrationCode) && request.RegistrationCode != registrationCode)
+        {
+            throw new ServiceException("Codigo de cadastro invalido.");
+        }
+
         var user = new ApplicationUser { UserName = request.Email, Email = request.Email, Nome = request.Nome };
         var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded)
@@ -50,7 +56,7 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, ICo
         };
         claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
-        var key = configuration["Jwt:Key"] ?? "CRObras-dev-secret-key-change-in-production";
+        var key = configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key nao configurada.");
         var credentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
         var expiresAt = DateTime.UtcNow.AddHours(8);
         var token = new JwtSecurityToken(
@@ -64,6 +70,6 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, ICo
     }
 }
 
-public record RegisterRequest(string Nome, string Email, string Password);
+public record RegisterRequest(string Nome, string Email, string Password, string? RegistrationCode);
 public record LoginRequest(string Email, string Password);
 public record AuthResponse(string Token, DateTime ExpiresAt, string Nome, string Email);
