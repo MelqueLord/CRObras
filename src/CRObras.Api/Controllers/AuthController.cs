@@ -29,7 +29,7 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, ICo
             throw new ServiceException(string.Join(" ", result.Errors.Select(e => e.Description)));
         }
 
-        return await CreateTokenAsync(user);
+        return CreateToken(user);
     }
 
     [HttpPost("login")]
@@ -42,19 +42,17 @@ public sealed class AuthController(UserManager<ApplicationUser> userManager, ICo
             throw new ServiceException("Credenciais invalidas.");
         }
 
-        return await CreateTokenAsync(user);
+        return CreateToken(user);
     }
 
-    private async Task<AuthResponse> CreateTokenAsync(ApplicationUser user)
+    private AuthResponse CreateToken(ApplicationUser user)
     {
-        var roles = await userManager.GetRolesAsync(user);
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new(ClaimTypes.Name, user.Nome)
         };
-        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
         var key = configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key nao configurada.");
         var credentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
