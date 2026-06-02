@@ -1,0 +1,11 @@
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/bin/Debug/net8.0/CRObras.Domain.deps.json
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/bin/Debug/net8.0/CRObras.Domain.dll
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/bin/Debug/net8.0/CRObras.Domain.pdb
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.GeneratedMSBuildEditorConfig.editorconfig
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.AssemblyInfoInputs.cache
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.AssemblyInfo.cs
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.csproj.CoreCompileInputs.cache
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.dll
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/refint/CRObras.Domain.dll
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.pdb
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/ref/CRObras.Domain.dll
