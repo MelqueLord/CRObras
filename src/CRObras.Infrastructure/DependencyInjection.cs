@@ -21,7 +21,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException(
                 "DATABASE_URL ou ConnectionStrings:DefaultConnection nao configurada.");
 
-        services.AddDbContextPool<AppDbContext>(options =>
+        services.AddDbContext<AppDbContext>(options =>
         {
             options.UseNpgsql(
                 connectionString,

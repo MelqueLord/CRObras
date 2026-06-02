@@ -558,19 +558,39 @@ public sealed class CRObrasService(IAppDbContext db)
     public async Task<DashboardResumoResponse> ObterDashboardAsync(CancellationToken ct)
     {
         var obras = await db.Obras.AsNoTracking().OrderBy(o => o.Nome).ToListAsync(ct);
-        var resumoObras = new List<DashboardObraResumo>();
-        decimal totalInvestido = 0;
-        decimal totalGasto = 0;
-        decimal totalRecebido = 0;
+        var totaisMovimentacoes = await db.MovimentacoesFinanceiras.AsNoTracking()
+            .Where(m => m.Status == StatusMovimentacao.Confirmada)
+            .GroupBy(m => new { m.ObraId, m.Tipo })
+            .Select(g => new { g.Key.ObraId, g.Key.Tipo, Valor = g.Sum(m => m.Valor) })
+            .ToListAsync(ct);
 
-        foreach (var obra in obras)
+        var totaisPorObra = totaisMovimentacoes
+            .GroupBy(item => item.ObraId)
+            .ToDictionary(
+                group => group.Key,
+                group => new
+                {
+                    TotalInvestido = group.Where(item => item.Tipo == TipoMovimentacao.Aporte).Sum(item => item.Valor),
+                    TotalGasto = group.Where(item => item.Tipo == TipoMovimentacao.Despesa).Sum(item => item.Valor),
+                    TotalRecebido = group.Where(item => item.Tipo == TipoMovimentacao.RecebimentoVenda).Sum(item => item.Valor)
+                });
+
+        var resumoObras = obras.Select(obra =>
         {
-            var totais = await CalcularTotaisAsync(obra.Id, ct);
-            totalInvestido += totais.TotalInvestido;
-            totalGasto += totais.TotalGasto;
-            totalRecebido += totais.TotalRecebido;
-            resumoObras.Add(new DashboardObraResumo(obra.Id, obra.Nome, obra.Status.ToString(), obra.SaldoAtual, totais.TotalInvestido, totais.TotalGasto, totais.TotalRecebido));
-        }
+            totaisPorObra.TryGetValue(obra.Id, out var totais);
+            return new DashboardObraResumo(
+                obra.Id,
+                obra.Nome,
+                obra.Status.ToString(),
+                obra.SaldoAtual,
+                totais?.TotalInvestido ?? 0,
+                totais?.TotalGasto ?? 0,
+                totais?.TotalRecebido ?? 0);
+        }).ToList();
+
+        var totalInvestido = resumoObras.Sum(obra => obra.TotalInvestido);
+        var totalGasto = resumoObras.Sum(obra => obra.TotalGasto);
+        var totalRecebido = resumoObras.Sum(obra => obra.TotalRecebido);
 
         return new DashboardResumoResponse(obras.Sum(o => o.SaldoAtual), totalInvestido, totalGasto, totalRecebido, obras.Count(o => o.Status != ObraStatus.Encerrada && o.Status != ObraStatus.Cancelada), obras.Count(o => o.Status == ObraStatus.Encerrada), resumoObras);
     }
@@ -579,7 +599,6 @@ public sealed class CRObrasService(IAppDbContext db)
     {
         var hoje = DateOnlyExtensions.Today();
         return await db.ParcelasReceber.AsNoTracking()
-            .Include(p => p.Obra)
             .Where(p => p.Status == StatusParcela.Pendente || p.Status == StatusParcela.Vencida)
             .OrderBy(p => p.DataVencimento)
             .Select(p => new ParcelaPendenteResponse(p.Id, p.ObraId, p.Obra.Nome, p.Numero, p.Valor, p.DataVencimento, p.DataVencimento < hoje ? "Vencida" : p.Status.ToString()))

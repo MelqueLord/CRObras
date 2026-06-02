@@ -129,31 +129,51 @@ function confirmarAcao(message: string) {
   return window.confirm(message);
 }
 
-async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+type ApiOptions = RequestInit & { silent?: boolean; timeoutMs?: number };
+
+async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const token = localStorage.getItem('crobras.token');
-  window.dispatchEvent(new CustomEvent('crobras:request-start'));
+  const { silent = false, timeoutMs = 15000, ...requestOptions } = options;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (!silent) {
+    window.dispatchEvent(new CustomEvent('crobras:request-start'));
+  }
   try {
     const response = await fetch(`${API_URL}${path}`, {
-      ...options,
+      ...requestOptions,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers ?? {})
+        ...(requestOptions.headers ?? {})
       }
     });
     if (!response.ok) {
       const problem = await response.json().catch(() => null);
       const message = problem?.detail ?? (response.status === 401 ? 'Sessao expirada. Entre novamente.' : 'Erro na requisicao.');
-      window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+      if (!silent) {
+        window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+      }
       throw new Error(message);
     }
     return response.json();
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Nao foi possivel conectar na API.';
-    window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+    const message = err instanceof DOMException && err.name === 'AbortError'
+      ? 'A API demorou para responder. Tente novamente.'
+      : err instanceof Error ? err.message : 'Nao foi possivel conectar na API.';
+    if (!silent) {
+      window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+    }
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(message);
+    }
     throw err;
   } finally {
-    window.dispatchEvent(new CustomEvent('crobras:request-end'));
+    window.clearTimeout(timeout);
+    if (!silent) {
+      window.dispatchEvent(new CustomEvent('crobras:request-end'));
+    }
   }
 }
 
@@ -306,9 +326,9 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
       onError((err as Error).message);
     }
 
-    void api<Socio[]>('/api/socios').then(setSocios).catch((err) => onError((err as Error).message));
-    void api<Dashboard>('/api/dashboard/resumo').then(setDashboard).catch((err) => onError((err as Error).message));
-    void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes').then(setParcelasPendentes).catch((err) => onError((err as Error).message));
+    void api<Socio[]>('/api/socios', { silent: true }).then(setSocios).catch(() => undefined);
+    void api<Dashboard>('/api/dashboard/resumo', { silent: true }).then(setDashboard).catch(() => undefined);
+    void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes', { silent: true }).then(setParcelasPendentes).catch(() => undefined);
   }
 
   function addObra(obra: Obra) {
@@ -432,7 +452,7 @@ function ResumoFinanceiroObra({ obraId }: { obraId: string }) {
   const [resumo, setResumo] = useState<ResumoFinanceiro | null>(null);
 
   useEffect(() => {
-    api<ResumoFinanceiro>(`/api/obras/${obraId}/resumo-financeiro`).then(setResumo).catch(() => setResumo(null));
+    api<ResumoFinanceiro>(`/api/obras/${obraId}/resumo-financeiro`, { silent: true }).then(setResumo).catch(() => setResumo(null));
   }, [obraId]);
 
   if (!resumo) {
@@ -517,7 +537,7 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
       return;
     }
     setError('');
-    await api(`/api/obras/${obra.id}`, {
+    await api<Obra>(`/api/obras/${obra.id}`, {
       method: 'PUT',
       body: JSON.stringify({
         nome,
@@ -564,7 +584,7 @@ function SocioForm({ onDone }: { onDone: () => void }) {
       return;
     }
     setError('');
-    await api('/api/socios', { method: 'POST', body: JSON.stringify({ nome, email, documento: '', telefone: '', ativo: true }) });
+    await api<Socio>('/api/socios', { method: 'POST', body: JSON.stringify({ nome, email, documento: '', telefone: '', ativo: true }) });
     setNome('');
     setEmail('');
     onDone();
@@ -588,7 +608,7 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
   const [percentual, setPercentual] = useState('50');
   const [error, setError] = useState('');
   const canSubmit = !isBlank(socioId) && isPercentualValido(percentual);
-  useEffect(() => { api<ObraSocio[]>(`/api/obras/${obra.id}/socios`).then(setVinculos).catch(() => setVinculos([])); }, [obra.id]);
+  useEffect(() => { api<ObraSocio[]>(`/api/obras/${obra.id}/socios`, { silent: true }).then(setVinculos).catch(() => setVinculos([])); }, [obra.id]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!socioId) {
@@ -600,18 +620,18 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
       return;
     }
     setError('');
-    await api(`/api/obras/${obra.id}/socios`, { method: 'POST', body: JSON.stringify({ socioId, percentualParticipacao: toNumber(percentual), observacao: '' }) });
+    const vinculo = await api<ObraSocio>(`/api/obras/${obra.id}/socios`, { method: 'POST', body: JSON.stringify({ socioId, percentualParticipacao: toNumber(percentual), observacao: '' }) });
+    setVinculos((current) => current.some((item) => item.socioId === vinculo.socioId) ? current : [...current, vinculo]);
     setSocioId('');
-    onDone();
-    setVinculos(await api<ObraSocio[]>(`/api/obras/${obra.id}/socios`));
+    void onDone();
   }
   async function atualizarPercentual(socioId: string, percentualParticipacao: number) {
-    await api(`/api/obras/${obra.id}/socios/${socioId}`, {
+    const vinculo = await api<ObraSocio>(`/api/obras/${obra.id}/socios/${socioId}`, {
       method: 'PUT',
       body: JSON.stringify({ socioId, percentualParticipacao, observacao: '' })
     });
-    onDone();
-    setVinculos(await api<ObraSocio[]>(`/api/obras/${obra.id}/socios`));
+    setVinculos((current) => current.map((item) => item.socioId === socioId ? vinculo : item));
+    void onDone();
   }
   return (
     <div className="grid gap-4">
@@ -635,18 +655,18 @@ function SociosEditor({ onDone }: { onDone: () => void }) {
   const [socios, setSocios] = useState<Socio[]>([]);
 
   async function load() {
-    setSocios(await api<Socio[]>('/api/socios'));
+    setSocios(await api<Socio[]>('/api/socios', { silent: true }));
   }
 
   useEffect(() => { void load(); }, []);
 
   async function save(socio: Socio) {
-    await api(`/api/socios/${socio.id}`, {
+    const atualizado = await api<Socio>(`/api/socios/${socio.id}`, {
       method: 'PUT',
       body: JSON.stringify(socio)
     });
-    await load();
-    onDone();
+    setSocios((current) => current.map((item) => item.id === atualizado.id ? atualizado : item));
+    void onDone();
   }
 
   async function remove(socio: Socio) {
@@ -654,8 +674,8 @@ function SociosEditor({ onDone }: { onDone: () => void }) {
       return;
     }
     await api(`/api/socios/${socio.id}`, { method: 'DELETE' });
-    await load();
-    onDone();
+    setSocios((current) => current.map((item) => item.id === socio.id ? { ...item, ativo: false } : item));
+    void onDone();
   }
 
   return (
@@ -728,14 +748,10 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   const [dataFinal, setDataFinal] = useState('');
   const [error, setError] = useState('');
   async function loadFinanceiro() {
-    const [movimentacoesData, sociosData, fornecedoresData] = await Promise.all([
-      api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`),
-      api<ObraSocio[]>(`/api/obras/${obraId}/socios`),
-      api<Fornecedor[]>('/api/fornecedores')
-    ]);
+    const movimentacoesData = await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`, { silent: true });
     setMovs(movimentacoesData);
-    setSocios(sociosData);
-    setFornecedores(fornecedoresData);
+    void api<ObraSocio[]>(`/api/obras/${obraId}/socios`, { silent: true }).then(setSocios).catch(() => undefined);
+    void api<Fornecedor[]>('/api/fornecedores', { silent: true }).then(setFornecedores).catch(() => undefined);
   }
 
   useEffect(() => { void loadFinanceiro(); }, [obraId]);
@@ -763,11 +779,11 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
       return;
     }
     setError('');
-    await api(`/api/obras/${obraId}/aportes`, { method: 'POST', body: JSON.stringify({ socioId, valor: toNumber(valor), dataAporte: today(), descricao }) });
+    const movimentacao = await api<Movimento>(`/api/obras/${obraId}/aportes`, { method: 'POST', body: JSON.stringify({ socioId, valor: toNumber(valor), dataAporte: today(), descricao }) });
+    setMovs((current) => [movimentacao, ...current]);
     setValor('');
     setDescricao('');
-    onDone();
-    setMovs(await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`));
+    void onDone();
   }
   async function criarFornecedor() {
     if (!canCriarFornecedor) {
@@ -778,7 +794,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     const fornecedor = await api<Fornecedor>('/api/fornecedores', { method: 'POST', body: JSON.stringify({ nome: novoFornecedor, documento: '', telefone: '', ativo: true }) });
     setNovoFornecedor('');
     setFornecedorId(fornecedor.id);
-    setFornecedores(await api<Fornecedor[]>('/api/fornecedores'));
+    setFornecedores((current) => current.some((item) => item.id === fornecedor.id) ? current : [...current, fornecedor]);
   }
   async function despesa() {
     if (!canDespesa) {
@@ -786,13 +802,13 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
       return;
     }
     setError('');
-    await api(`/api/obras/${obraId}/despesas`, { method: 'POST', body: JSON.stringify({ categoria: Number(categoriaDespesa), valor: toNumber(valor), dataDespesa: today(), descricao, fornecedor: fornecedorSelecionado?.nome ?? '', documentoFiscal: '' }) });
+    const movimentacao = await api<Movimento>(`/api/obras/${obraId}/despesas`, { method: 'POST', body: JSON.stringify({ categoria: Number(categoriaDespesa), valor: toNumber(valor), dataDespesa: today(), descricao, fornecedor: fornecedorSelecionado?.nome ?? '', documentoFiscal: '' }) });
+    setMovs((current) => [movimentacao, ...current]);
     setValor('');
     setDescricao('');
     setCategoriaDespesa('99');
     setFornecedorId('');
-    onDone();
-    setMovs(await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`));
+    void onDone();
   }
   async function cancelar(movimentacao: Movimento) {
     if (movimentacao.parcelaReceberId) {
@@ -802,9 +818,9 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     if (!confirmarAcao('Cancelar esta movimentacao? O saldo da obra sera recalculado e o historico permanecera registrado.')) {
       return;
     }
-    await api(`/api/obras/${obraId}/movimentacoes/${movimentacao.id}/cancelar`, { method: 'POST' });
-    onDone();
-    setMovs(await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`));
+    const atualizada = await api<Movimento>(`/api/obras/${obraId}/movimentacoes/${movimentacao.id}/cancelar`, { method: 'POST' });
+    setMovs((current) => current.map((item) => item.id === atualizada.id ? atualizada : item));
+    void onDone();
   }
   return (
     <Panel title="Financeiro">
@@ -952,15 +968,12 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [parcelaVencimento, setParcelaVencimento] = useState(addMonths(today(), 1));
   const [parcelasGerar, setParcelasGerar] = useState('1');
   const [error, setError] = useState('');
-  useEffect(() => { api<Venda>(`/api/obras/${obraId}/venda`).then(setVenda).catch(() => setVenda(null)); }, [obraId]);
+  useEffect(() => { api<Venda>(`/api/obras/${obraId}/venda`, { silent: true }).then(setVenda).catch(() => setVenda(null)); }, [obraId]);
   const temParcelamentoInicial = !isBlank(parcelasIniciaisValor) || !isBlank(parcelasIniciaisQtd);
   const parcelamentoInicialValido = !temParcelamentoInicial || (isPositive(parcelasIniciaisValor) && Number.isInteger(toNumber(parcelasIniciaisQtd)) && toNumber(parcelasIniciaisQtd) > 0 && !isBlank(parcelasIniciaisVencimento));
   const canCriarVenda = !isBlank(comprador) && isPositive(valor) && (isBlank(entrada) || (isNonNegative(entrada) && toNumber(entrada) <= toNumber(valor))) && parcelamentoInicialValido;
   const canAddParcelas = isPositive(parcelaValor) && !isBlank(parcelaVencimento) && Number.isInteger(toNumber(parcelasGerar)) && toNumber(parcelasGerar) > 0;
   const canAddPermuta = !isBlank(permuta) && isPositive(valorPermuta);
-  async function reloadVenda() {
-    setVenda(await api<Venda>(`/api/obras/${obraId}/venda`));
-  }
   async function criar() {
     if (!canCriarVenda) {
       setError('Informe comprador, valor total, entrada valida e parcelamento valido.');
@@ -981,7 +994,7 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     setEntrada('');
     setParcelasIniciaisValor('');
     setParcelasIniciaisQtd('');
-    onDone();
+    void onDone();
   }
   async function addPermuta() {
     if (!venda) return;
@@ -990,10 +1003,10 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       return;
     }
     setError('');
-    await api(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: toNumber(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: 1 }) });
+    const novaPermuta = await api<Permuta>(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: toNumber(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: 1 }) });
     setPermuta('');
     setValorPermuta('');
-    await reloadVenda();
+    setVenda((current) => current ? { ...current, permutas: [...current.permutas, novaPermuta] } : current);
   }
   async function addParcelas() {
     if (!venda) return;
@@ -1009,23 +1022,29 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       valor: toNumber(parcelaValor),
       dataVencimento: addMonths(parcelaVencimento, index)
     }));
-    await api(`/api/vendas/${venda.id}/parcelas`, { method: 'POST', body: JSON.stringify(parcelas) });
+    const novasParcelas = await api<Parcela[]>(`/api/vendas/${venda.id}/parcelas`, { method: 'POST', body: JSON.stringify(parcelas) });
     setParcelaValor('');
     setParcelasGerar('1');
-    await reloadVenda();
+    setVenda((current) => current
+      ? { ...current, parcelas: [...current.parcelas, ...novasParcelas].sort((a, b) => a.numero - b.numero) }
+      : current);
   }
   async function pagarParcela(parcelaId: string) {
-    await api(`/api/parcelas/${parcelaId}/pagar`, { method: 'POST', body: JSON.stringify({ dataPagamento: today() }) });
-    await reloadVenda();
-    onDone();
+    const parcela = await api<Parcela>(`/api/parcelas/${parcelaId}/pagar`, { method: 'POST', body: JSON.stringify({ dataPagamento: today() }) });
+    setVenda((current) => current
+      ? { ...current, parcelas: current.parcelas.map((item) => item.id === parcela.id ? parcela : item) }
+      : current);
+    void onDone();
   }
   async function cancelarPagamento(parcelaId: string) {
     if (!confirmarAcao('Cancelar o pagamento desta parcela? O valor sera removido do caixa da obra.')) {
       return;
     }
-    await api(`/api/parcelas/${parcelaId}/cancelar-pagamento`, { method: 'POST' });
-    await reloadVenda();
-    onDone();
+    const parcela = await api<Parcela>(`/api/parcelas/${parcelaId}/cancelar-pagamento`, { method: 'POST' });
+    setVenda((current) => current
+      ? { ...current, parcelas: current.parcelas.map((item) => item.id === parcela.id ? parcela : item) }
+      : current);
+    void onDone();
   }
   return (
     <Panel title="Venda, parcelas e permuta">
