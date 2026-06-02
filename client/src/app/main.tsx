@@ -9,7 +9,7 @@ type ResumoFinanceiro = { saldoAtual: number; totalInvestido: number; totalGasto
 type Socio = { id: string; nome: string; documento?: string; email?: string; telefone?: string; ativo: boolean };
 type ObraSocio = { socioId: string; socioNome: string; percentualParticipacao: number };
 type Fornecedor = { id: string; nome: string; documento?: string; telefone?: string; ativo: boolean };
-type Movimento = { id: string; tipo: number; categoria: string; valor: number; dataMovimentacao: string; descricao: string; status: number; parcelaReceberId?: string };
+type Movimento = { id: string; tipo: number; categoria: string; valor: number; dataMovimentacao: string; descricao: string; status: number; parcelaReceberId?: string; fornecedor?: string };
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
 type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
 type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; status: number; parcelas: Parcela[]; permutas: Permuta[] };
@@ -28,8 +28,43 @@ const categoriasDespesa = [
   { value: 99, label: 'Outros' }
 ];
 
+const filtrosStatusObra = [
+  { value: 'todos', label: 'Todas' },
+  { value: '2', label: 'Andamento' },
+  { value: '1', label: 'Planejadas' },
+  { value: '3', label: 'Vendidas' },
+  { value: '4', label: 'Encerradas' },
+  { value: '5', label: 'Canceladas' }
+];
+
+const ordemStatusParcela = new Map<number, number>([
+  [3, 1],
+  [1, 2],
+  [2, 3],
+  [4, 4]
+]);
+
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
+}
+
+function csvCell(value: string | number | null | undefined) {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, headers: string[], rows: Array<Array<string | number | null | undefined>>) {
+  const csv = [
+    headers.map(csvCell).join(';'),
+    ...rows.map((row) => row.map(csvCell).join(';'))
+  ].join('\n');
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function today() {
@@ -285,19 +320,28 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const [selectedObraId, setSelectedObraId] = useState('');
   const [activeTab, setActiveTab] = useState('resumo');
   const [buscaObra, setBuscaObra] = useState('');
+  const [filtroStatusObra, setFiltroStatusObra] = useState('todos');
   const [ordenacaoObras, setOrdenacaoObras] = useState('nome');
   const selectedObra = useMemo(() => obras.find((obra) => obra.id === selectedObraId), [obras, selectedObraId]);
+  const totaisPorStatus = useMemo(() => {
+    const totais = new Map<string, number>([['todos', obras.length]]);
+    for (const obra of obras) {
+      const key = String(obra.status);
+      totais.set(key, (totais.get(key) ?? 0) + 1);
+    }
+    return totais;
+  }, [obras]);
   const obrasFiltradas = useMemo(() => {
     const busca = buscaObra.trim().toLowerCase();
-    if (!busca) {
-      return obras;
-    }
-
-    return obras.filter((obra) =>
-      obra.nome.toLowerCase().includes(busca)
-      || obraStatusLabel(obra.status).toLowerCase().includes(busca)
-      || (obra.endereco ?? '').toLowerCase().includes(busca));
-  }, [obras, buscaObra]);
+    return obras.filter((obra) => {
+      const bateStatus = filtroStatusObra === 'todos' || obra.status === Number(filtroStatusObra);
+      const bateBusca = !busca
+        || obra.nome.toLowerCase().includes(busca)
+        || obraStatusLabel(obra.status).toLowerCase().includes(busca)
+        || (obra.endereco ?? '').toLowerCase().includes(busca);
+      return bateStatus && bateBusca;
+    });
+  }, [obras, buscaObra, filtroStatusObra]);
   const obrasVisiveis = useMemo(() => {
     const ordenadas = [...obrasFiltradas];
     ordenadas.sort((a, b) => {
@@ -384,6 +428,18 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
         <Panel title="Obras">
           <ObraForm onCreated={addObra} />
           <input className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
+          <div className="mt-3 grid grid-cols-2 gap-1">
+            {filtrosStatusObra.map((filtro) => (
+              <button
+                key={filtro.value}
+                className={`rounded border px-2 py-1.5 text-xs font-medium transition ${filtroStatusObra === filtro.value ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400'}`}
+                type="button"
+                onClick={() => setFiltroStatusObra(filtro.value)}
+              >
+                {filtro.label} ({totaisPorStatus.get(filtro.value) ?? 0})
+              </button>
+            ))}
+          </div>
           <select className="input mt-2" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
             <option value="nome">Ordenar por nome</option>
             <option value="status">Ordenar por status</option>
@@ -744,6 +800,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [filtroFornecedor, setFiltroFornecedor] = useState('todos');
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [error, setError] = useState('');
@@ -755,17 +812,30 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   }
 
   useEffect(() => { void loadFinanceiro(); }, [obraId]);
+  const fornecedoresDoExtrato = useMemo(() => {
+    const nomes = new Set<string>();
+    for (const movimentacao of movs) {
+      const fornecedor = movimentacao.fornecedor?.trim();
+      if (fornecedor) {
+        nomes.add(fornecedor);
+      }
+    }
+    return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [movs]);
   const movsFiltradas = useMemo(() => {
     const texto = filtroTexto.trim().toLowerCase();
+    const fornecedorSelecionado = filtroFornecedor.toLowerCase();
     return movs.filter((movimentacao) => {
-      const bateTexto = !texto || movimentacao.descricao.toLowerCase().includes(texto) || movimentacao.categoria.toLowerCase().includes(texto);
+      const fornecedor = movimentacao.fornecedor?.trim() ?? '';
+      const bateTexto = !texto || movimentacao.descricao.toLowerCase().includes(texto) || movimentacao.categoria.toLowerCase().includes(texto) || fornecedor.toLowerCase().includes(texto);
       const bateTipo = filtroTipo === 'todos' || movimentacao.tipo === Number(filtroTipo);
       const bateStatus = filtroStatus === 'todos' || movimentacao.status === Number(filtroStatus);
+      const bateFornecedor = filtroFornecedor === 'todos' || fornecedor.toLowerCase() === fornecedorSelecionado;
       const bateDataInicial = !dataInicial || movimentacao.dataMovimentacao >= dataInicial;
       const bateDataFinal = !dataFinal || movimentacao.dataMovimentacao <= dataFinal;
-      return bateTexto && bateTipo && bateStatus && bateDataInicial && bateDataFinal;
+      return bateTexto && bateTipo && bateStatus && bateFornecedor && bateDataInicial && bateDataFinal;
     });
-  }, [movs, filtroTexto, filtroTipo, filtroStatus, dataInicial, dataFinal]);
+  }, [movs, filtroTexto, filtroTipo, filtroStatus, filtroFornecedor, dataInicial, dataFinal]);
   const totalEntradasFiltradas = movsFiltradas.filter((movimentacao) => movimentacao.status === 1 && movimentacao.tipo !== 2).reduce((total, movimentacao) => total + movimentacao.valor, 0);
   const totalSaidasFiltradas = movsFiltradas.filter((movimentacao) => movimentacao.status === 1 && movimentacao.tipo === 2).reduce((total, movimentacao) => total + movimentacao.valor, 0);
   const canAportar = !isBlank(socioId) && isPositive(valor);
@@ -822,6 +892,21 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     setMovs((current) => current.map((item) => item.id === atualizada.id ? atualizada : item));
     void onDone();
   }
+  function exportarCsv() {
+    downloadCsv(
+      `extrato-${obraId}-${today()}.csv`,
+      ['Data', 'Tipo', 'Categoria', 'Fornecedor', 'Descricao', 'Valor', 'Status'],
+      movsFiltradas.map((movimentacao) => [
+        movimentacao.dataMovimentacao,
+        movimentoTipoLabel(movimentacao.tipo),
+        movimentacao.categoria,
+        movimentacao.fornecedor || '',
+        movimentacao.descricao,
+        movimentacao.valor.toFixed(2).replace('.', ','),
+        movimentoStatusLabel(movimentacao.status)
+      ])
+    );
+  }
   return (
     <Panel title="Financeiro">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -843,7 +928,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
         <button className="btn-primary" disabled={!canAportar} onClick={aporte}>Aporte</button>
         <button className="btn-secondary" disabled={!canDespesa} onClick={despesa}>Despesa</button>
       </div>
-      <div className="mt-3 grid gap-2 rounded border border-zinc-200 p-3 lg:grid-cols-[1fr_140px_140px_150px_150px_auto]">
+      <div className="mt-3 grid gap-2 rounded border border-zinc-200 p-3 lg:grid-cols-[1fr_140px_140px_180px_150px_150px_auto]">
         <input className="input" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} placeholder="Buscar no extrato" />
         <select className="input" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
           <option value="todos">Todos tipos</option>
@@ -857,16 +942,21 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
           <option value="1">Confirmada</option>
           <option value="2">Cancelada</option>
         </select>
+        <select className="input" value={filtroFornecedor} onChange={(e) => setFiltroFornecedor(e.target.value)}>
+          <option value="todos">Todos fornecedores</option>
+          {fornecedoresDoExtrato.map((fornecedor) => <option key={fornecedor} value={fornecedor}>{fornecedor}</option>)}
+        </select>
         <input className="input" type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} />
         <input className="input" type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} />
-        <button className="btn-secondary" type="button" onClick={() => { setFiltroTexto(''); setFiltroTipo('todos'); setFiltroStatus('todos'); setDataInicial(''); setDataFinal(''); }}>Limpar</button>
+        <button className="btn-secondary" type="button" onClick={() => { setFiltroTexto(''); setFiltroTipo('todos'); setFiltroStatus('todos'); setFiltroFornecedor('todos'); setDataInicial(''); setDataFinal(''); }}>Limpar</button>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <Metric label="Entradas filtradas" value={money(totalEntradasFiltradas)} />
         <Metric label="Saidas filtradas" value={money(totalSaidasFiltradas)} />
         <Metric label="Saldo filtrado" value={money(totalEntradasFiltradas - totalSaidasFiltradas)} />
       </div>
-      <div className="no-print mt-3 flex justify-end">
+      <div className="no-print mt-3 flex justify-end gap-2">
+        <button className="btn-secondary" type="button" disabled={movsFiltradas.length === 0} onClick={exportarCsv}>Exportar CSV</button>
         <button className="btn-secondary" type="button" disabled={movsFiltradas.length === 0} onClick={() => window.print()}>Imprimir extrato</button>
       </div>
       <RelatorioExtrato
@@ -880,7 +970,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
         <table className="w-full text-left text-sm">
           <thead>
             <tr>
-              {['Data', 'Tipo', 'Categoria', 'Valor', 'Status', 'Acao'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
+              {['Data', 'Tipo', 'Categoria', 'Fornecedor', 'Valor', 'Status', 'Acao'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -889,6 +979,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
                 <td className="border-b border-zinc-100 py-2">{movimentacao.dataMovimentacao}</td>
                 <td className="border-b border-zinc-100 py-2">{movimentoTipoLabel(movimentacao.tipo)}</td>
                 <td className="border-b border-zinc-100 py-2">{movimentacao.categoria}</td>
+                <td className="border-b border-zinc-100 py-2">{movimentacao.fornecedor || '-'}</td>
                 <td className="border-b border-zinc-100 py-2">{money(movimentacao.valor)}</td>
                 <td className="border-b border-zinc-100 py-2">{movimentoStatusLabel(movimentacao.status)}</td>
                 <td className="border-b border-zinc-100 py-2">
@@ -900,7 +991,7 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
                 </td>
               </tr>
             ))}
-            {movsFiltradas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={6}>Nenhuma movimentacao encontrada.</td></tr>}
+            {movsFiltradas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={7}>Nenhuma movimentacao encontrada.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -933,7 +1024,7 @@ function RelatorioExtrato({ movimentos, dataInicial, dataFinal, totalEntradas, t
         <table className="w-full text-left text-sm">
           <thead>
             <tr>
-              {['Data', 'Tipo', 'Categoria', 'Descricao', 'Valor', 'Status'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
+              {['Data', 'Tipo', 'Categoria', 'Fornecedor', 'Descricao', 'Valor', 'Status'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -942,6 +1033,7 @@ function RelatorioExtrato({ movimentos, dataInicial, dataFinal, totalEntradas, t
                 <td className="border-b border-zinc-100 py-2">{movimento.dataMovimentacao}</td>
                 <td className="border-b border-zinc-100 py-2">{movimentoTipoLabel(movimento.tipo)}</td>
                 <td className="border-b border-zinc-100 py-2">{movimento.categoria}</td>
+                <td className="border-b border-zinc-100 py-2">{movimento.fornecedor || '-'}</td>
                 <td className="border-b border-zinc-100 py-2">{movimento.descricao}</td>
                 <td className="border-b border-zinc-100 py-2">{money(movimento.valor)}</td>
                 <td className="border-b border-zinc-100 py-2">{movimentoStatusLabel(movimento.status)}</td>
@@ -967,6 +1059,7 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [parcelaValor, setParcelaValor] = useState('');
   const [parcelaVencimento, setParcelaVencimento] = useState(addMonths(today(), 1));
   const [parcelasGerar, setParcelasGerar] = useState('1');
+  const [ordenacaoParcelas, setOrdenacaoParcelas] = useState('vencimentoAsc');
   const [error, setError] = useState('');
   useEffect(() => { api<Venda>(`/api/obras/${obraId}/venda`, { silent: true }).then(setVenda).catch(() => setVenda(null)); }, [obraId]);
   const temParcelamentoInicial = !isBlank(parcelasIniciaisValor) || !isBlank(parcelasIniciaisQtd);
@@ -974,6 +1067,23 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const canCriarVenda = !isBlank(comprador) && isPositive(valor) && (isBlank(entrada) || (isNonNegative(entrada) && toNumber(entrada) <= toNumber(valor))) && parcelamentoInicialValido;
   const canAddParcelas = isPositive(parcelaValor) && !isBlank(parcelaVencimento) && Number.isInteger(toNumber(parcelasGerar)) && toNumber(parcelasGerar) > 0;
   const canAddPermuta = !isBlank(permuta) && isPositive(valorPermuta);
+  const parcelasOrdenadas = useMemo(() => {
+    const parcelas = [...(venda?.parcelas ?? [])];
+    parcelas.sort((a, b) => {
+      if (ordenacaoParcelas === 'status') {
+        const status = (ordemStatusParcela.get(a.status) ?? 99) - (ordemStatusParcela.get(b.status) ?? 99);
+        return status || a.dataVencimento.localeCompare(b.dataVencimento) || a.numero - b.numero;
+      }
+      if (ordenacaoParcelas === 'vencimentoDesc') {
+        return b.dataVencimento.localeCompare(a.dataVencimento) || a.numero - b.numero;
+      }
+      if (ordenacaoParcelas === 'numero') {
+        return a.numero - b.numero;
+      }
+      return a.dataVencimento.localeCompare(b.dataVencimento) || a.numero - b.numero;
+    });
+    return parcelas;
+  }, [venda?.parcelas, ordenacaoParcelas]);
   async function criar() {
     if (!canCriarVenda) {
       setError('Informe comprador, valor total, entrada valida e parcelamento valido.');
@@ -1074,6 +1184,15 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
             <input className="input" type="number" min="1" step="1" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
             <button className="btn-secondary" disabled={!canAddParcelas} onClick={addParcelas}>Gerar</button>
           </div>
+          <div className="flex flex-col gap-2 rounded border border-zinc-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm font-medium text-zinc-600">{parcelasOrdenadas.length} parcela(s)</span>
+            <select className="input sm:w-64" value={ordenacaoParcelas} onChange={(e) => setOrdenacaoParcelas(e.target.value)} aria-label="Ordenar parcelas">
+              <option value="vencimentoAsc">Vencimento mais proximo</option>
+              <option value="vencimentoDesc">Vencimento mais distante</option>
+              <option value="status">Status</option>
+              <option value="numero">Numero da parcela</option>
+            </select>
+          </div>
           <div className="overflow-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -1082,7 +1201,7 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {venda.parcelas.map((parcela) => (
+                {parcelasOrdenadas.map((parcela) => (
                   <tr key={parcela.id}>
                     <td className="border-b border-zinc-100 py-2">{parcela.numero}</td>
                     <td className="border-b border-zinc-100 py-2">{parcela.dataVencimento}</td>
@@ -1097,7 +1216,7 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
                     </td>
                   </tr>
                 ))}
-                {venda.parcelas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={5}>Nenhuma parcela cadastrada.</td></tr>}
+                {parcelasOrdenadas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={5}>Nenhuma parcela cadastrada.</td></tr>}
               </tbody>
             </table>
           </div>

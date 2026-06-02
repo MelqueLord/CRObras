@@ -279,22 +279,40 @@ public sealed class CRObrasService(IAppDbContext db)
             Descricao = request.Descricao.Trim()
         };
         db.MovimentacoesFinanceiras.Add(mov);
-        db.Despesas.Add(new Despesa { ObraId = obraId, MovimentacaoFinanceira = mov, Categoria = request.Categoria, Fornecedor = request.Fornecedor, DocumentoFiscal = request.DocumentoFiscal });
+        var fornecedor = string.IsNullOrWhiteSpace(request.Fornecedor) ? null : request.Fornecedor.Trim();
+        db.Despesas.Add(new Despesa { ObraId = obraId, MovimentacaoFinanceira = mov, Categoria = request.Categoria, Fornecedor = fornecedor, DocumentoFiscal = request.DocumentoFiscal });
         obra.SaldoAtual -= request.Valor;
 
         await db.SaveChangesAsync(ct);
-        return ToMovimentacaoResponse(mov);
+        return ToMovimentacaoResponse(mov, fornecedor);
     }
 
     public async Task<IReadOnlyCollection<MovimentacaoResponse>> ListarMovimentacoesAsync(Guid obraId, CancellationToken ct)
     {
         await GarantirObraExisteAsync(obraId, ct);
-        var movimentacoes = await db.MovimentacoesFinanceiras.AsNoTracking()
+        return await db.MovimentacoesFinanceiras.AsNoTracking()
             .Where(m => m.ObraId == obraId)
             .OrderByDescending(m => m.DataMovimentacao)
             .ThenByDescending(m => m.CriadoEm)
+            .GroupJoin(
+                db.Despesas.AsNoTracking(),
+                m => m.Id,
+                d => d.MovimentacaoFinanceiraId,
+                (mov, despesas) => new { Movimentacao = mov, Fornecedor = despesas.Select(d => d.Fornecedor).FirstOrDefault() })
+            .Select(item => new MovimentacaoResponse(
+                item.Movimentacao.Id,
+                item.Movimentacao.ObraId,
+                item.Movimentacao.Tipo,
+                item.Movimentacao.Categoria,
+                item.Movimentacao.Valor,
+                item.Movimentacao.DataMovimentacao,
+                item.Movimentacao.Descricao,
+                item.Movimentacao.SocioId,
+                item.Movimentacao.ParcelaReceberId,
+                item.Movimentacao.Status,
+                item.Movimentacao.CriadoEm,
+                item.Fornecedor))
             .ToListAsync(ct);
-        return movimentacoes.Select(ToMovimentacaoResponse).ToList();
     }
 
     public async Task<MovimentacaoResponse> CancelarMovimentacaoAsync(Guid obraId, Guid movimentacaoId, CancellationToken ct)
@@ -305,7 +323,11 @@ public sealed class CRObrasService(IAppDbContext db)
             ?? throw new ServiceException("Movimentacao nao encontrada.");
         if (mov.Status == StatusMovimentacao.Cancelada)
         {
-            return ToMovimentacaoResponse(mov);
+            var fornecedorExistente = await db.Despesas.AsNoTracking()
+                .Where(d => d.MovimentacaoFinanceiraId == movimentacaoId)
+                .Select(d => d.Fornecedor)
+                .FirstOrDefaultAsync(ct);
+            return ToMovimentacaoResponse(mov, fornecedorExistente);
         }
 
         if (mov.ParcelaReceberId.HasValue)
@@ -317,7 +339,11 @@ public sealed class CRObrasService(IAppDbContext db)
         mov.Status = StatusMovimentacao.Cancelada;
 
         await db.SaveChangesAsync(ct);
-        return ToMovimentacaoResponse(mov);
+        var fornecedor = await db.Despesas.AsNoTracking()
+            .Where(d => d.MovimentacaoFinanceiraId == movimentacaoId)
+            .Select(d => d.Fornecedor)
+            .FirstOrDefaultAsync(ct);
+        return ToMovimentacaoResponse(mov, fornecedor);
     }
 
     public async Task<VendaResponse> CriarVendaAsync(Guid obraId, CriarVendaRequest request, CancellationToken ct)
@@ -690,7 +716,7 @@ public sealed class CRObrasService(IAppDbContext db)
     private static ObraResponse ToObraResponse(Obra obra) => new(obra.Id, obra.Nome, obra.Descricao, obra.Endereco, obra.DataInicio, obra.DataPrevistaConclusao, obra.Status, obra.SaldoAtual, obra.DataEncerramento);
     private static SocioResponse ToSocioResponse(Socio socio) => new(socio.Id, socio.Nome, socio.Documento, socio.Email, socio.Telefone, socio.Ativo);
     private static FornecedorResponse ToFornecedorResponse(Fornecedor fornecedor) => new(fornecedor.Id, fornecedor.Nome, fornecedor.Documento, fornecedor.Telefone, fornecedor.Ativo);
-    private static MovimentacaoResponse ToMovimentacaoResponse(MovimentacaoFinanceira mov) => new(mov.Id, mov.ObraId, mov.Tipo, mov.Categoria, mov.Valor, mov.DataMovimentacao, mov.Descricao, mov.SocioId, mov.ParcelaReceberId, mov.Status, mov.CriadoEm);
+    private static MovimentacaoResponse ToMovimentacaoResponse(MovimentacaoFinanceira mov, string? fornecedor = null) => new(mov.Id, mov.ObraId, mov.Tipo, mov.Categoria, mov.Valor, mov.DataMovimentacao, mov.Descricao, mov.SocioId, mov.ParcelaReceberId, mov.Status, mov.CriadoEm, fornecedor);
     private static ParcelaResponse ToParcelaResponse(ParcelaReceber parcela) => new(parcela.Id, parcela.Numero, parcela.Valor, parcela.DataVencimento, parcela.DataPagamento, parcela.Status);
     private static PermutaResponse ToPermutaResponse(AtivoPermuta permuta) => new(permuta.Id, permuta.Tipo, permuta.Descricao, permuta.ValorEstimado, permuta.DataRecebimento, permuta.Status);
     private static VendaResponse ToVendaResponse(Venda venda) => new(venda.Id, venda.ObraId, venda.Tipo, venda.ValorTotalNegociado, venda.ValorEntrada, venda.DataVenda, venda.CompradorNome, venda.Status, venda.Parcelas.OrderBy(p => p.Numero).Select(ToParcelaResponse).ToList(), venda.Permutas.OrderBy(p => p.Descricao).Select(ToPermutaResponse).ToList());

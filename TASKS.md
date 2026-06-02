@@ -40,15 +40,17 @@
 36. Adicionar ordenacao da lista de obras por status/saldo/nome.
 37. Adicionar destaque visual para obras encerradas/canceladas.
 38. Adicionar cadastro de fornecedor simples para despesas recorrentes.
-
-## Ajustes Implementados Agora
-
-1. Criado cadastro persistido de fornecedores com nome, documento, telefone e status ativo.
-2. Criados endpoints autenticados para listar, criar e atualizar fornecedores.
-3. Tela Financeiro agora permite cadastrar fornecedor rapidamente e selecionar fornecedor ao registrar despesa.
-
-## Proximas Tasks Recomendadas
-
 39. Adicionar filtro rapido por status na lista lateral de obras.
 40. Adicionar ordenacao de parcelas por vencimento/status.
 41. Adicionar filtro de extrato por fornecedor.
+42. Adicionar exportacao CSV do extrato financeiro filtrado.
+
+## Ajustes Implementados Agora
+
+1. Adicionada exportacao CSV do extrato financeiro filtrado.
+2. Exportacao usa os dados ja filtrados em memoria, sem chamada adicional para a API.
+3. CSV inclui data, tipo, categoria, fornecedor, descricao, valor e status.
+
+## Proximas Tasks Recomendadas
+
+43. Adicionar indicadores visuais de carregamento por painel.
