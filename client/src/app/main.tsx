@@ -5,14 +5,28 @@ import './styles.css';
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5113';
 
 type Obra = { id: string; nome: string; status: number; saldoAtual: number; dataInicio: string; descricao?: string; endereco?: string };
+type ResumoFinanceiro = { saldoAtual: number; totalInvestido: number; totalGasto: number; totalRecebido: number; valorPermutasEstimado: number; resultadoEconomico: number };
 type Socio = { id: string; nome: string; documento?: string; email?: string; telefone?: string; ativo: boolean };
 type ObraSocio = { socioId: string; socioNome: string; percentualParticipacao: number };
+type Fornecedor = { id: string; nome: string; documento?: string; telefone?: string; ativo: boolean };
 type Movimento = { id: string; tipo: number; categoria: string; valor: number; dataMovimentacao: string; descricao: string; status: number; parcelaReceberId?: string };
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
+type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
 type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; status: number; parcelas: Parcela[]; permutas: Permuta[] };
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
 type PreFechamento = { totalInvestido: number; totalGasto: number; totalRecebido: number; valorPermutasEstimado: number; resultadoFinanceiro: number; saldoAtual: number; pendencias: string[]; distribuicoes: { socioNome: string; valorInvestido: number; valorResultado: number; valorAReceberOuPagar: number }[] };
+
+const categoriasDespesa = [
+  { value: 1, label: 'Material' },
+  { value: 2, label: 'Mao de obra' },
+  { value: 3, label: 'Pintura' },
+  { value: 4, label: 'Eletricista' },
+  { value: 5, label: 'Cartorio' },
+  { value: 6, label: 'Impostos' },
+  { value: 7, label: 'Terreno' },
+  { value: 99, label: 'Outros' }
+];
 
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value ?? 0);
@@ -55,26 +69,125 @@ function obraStatusLabel(status: number) {
   return 'Indefinida';
 }
 
+function obraCardClass(obra: Obra, selectedObraId: string) {
+  if (obra.id === selectedObraId) {
+    return 'border-zinc-900 bg-zinc-900 text-white';
+  }
+  if (obra.status === 4) {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-950 hover:border-emerald-400';
+  }
+  if (obra.status === 5) {
+    return 'border-red-200 bg-red-50 text-red-950 hover:border-red-400';
+  }
+  return 'border-zinc-200 bg-white hover:border-zinc-400';
+}
+
+function obraStatusBadgeClass(status: number, isSelected: boolean) {
+  if (isSelected) {
+    return 'bg-white/15 text-white';
+  }
+  if (status === 4) {
+    return 'bg-emerald-100 text-emerald-800';
+  }
+  if (status === 5) {
+    return 'bg-red-100 text-red-800';
+  }
+  if (status === 3) {
+    return 'bg-blue-100 text-blue-800';
+  }
+  return 'bg-zinc-100 text-zinc-700';
+}
+
+function isBlank(value: string) {
+  return value.trim().length === 0;
+}
+
+function toNumber(value: string) {
+  return Number(String(value).replace(',', '.'));
+}
+
+function isPositive(value: string) {
+  const number = toNumber(value);
+  return Number.isFinite(number) && number > 0;
+}
+
+function isNonNegative(value: string) {
+  const number = toNumber(value);
+  return Number.isFinite(number) && number >= 0;
+}
+
+function isPercentualValido(value: string) {
+  const number = toNumber(value);
+  return Number.isFinite(number) && number >= 0 && number <= 100;
+}
+
+function isEmailValido(value: string) {
+  return isBlank(value) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function confirmarAcao(message: string) {
+  return window.confirm(message);
+}
+
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('crobras.token');
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {})
+  window.dispatchEvent(new CustomEvent('crobras:request-start'));
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers ?? {})
+      }
+    });
+    if (!response.ok) {
+      const problem = await response.json().catch(() => null);
+      const message = problem?.detail ?? (response.status === 401 ? 'Sessao expirada. Entre novamente.' : 'Erro na requisicao.');
+      window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+      throw new Error(message);
     }
-  });
-  if (!response.ok) {
-    const problem = await response.json().catch(() => null);
-    throw new Error(problem?.detail ?? 'Erro na requisicao');
+    return response.json();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Nao foi possivel conectar na API.';
+    window.dispatchEvent(new CustomEvent('crobras:api-error', { detail: message }));
+    throw err;
+  } finally {
+    window.dispatchEvent(new CustomEvent('crobras:request-end'));
   }
-  return response.json();
 }
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('crobras.token'));
-  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [pendingRequests, setPendingRequests] = useState(0);
+
+  useEffect(() => {
+    function onApiError(event: Event) {
+      setNotice(String((event as CustomEvent<string>).detail || 'Erro na operacao.'));
+    }
+    function onUnhandled(event: PromiseRejectionEvent) {
+      const message = event.reason instanceof Error ? event.reason.message : 'Erro inesperado na operacao.';
+      setNotice(message);
+    }
+    function onRequestStart() {
+      setPendingRequests((value) => value + 1);
+    }
+    function onRequestEnd() {
+      setPendingRequests((value) => Math.max(0, value - 1));
+    }
+
+    window.addEventListener('crobras:api-error', onApiError);
+    window.addEventListener('unhandledrejection', onUnhandled);
+    window.addEventListener('crobras:request-start', onRequestStart);
+    window.addEventListener('crobras:request-end', onRequestEnd);
+    return () => {
+      window.removeEventListener('crobras:api-error', onApiError);
+      window.removeEventListener('unhandledrejection', onUnhandled);
+      window.removeEventListener('crobras:request-start', onRequestStart);
+      window.removeEventListener('crobras:request-end', onRequestEnd);
+    };
+  }, []);
 
   if (!token) {
     return <AuthScreen onToken={(value) => { localStorage.setItem('crobras.token', value); setToken(value); }} />;
@@ -91,8 +204,16 @@ function App() {
           <button className="btn-secondary" onClick={() => { localStorage.removeItem('crobras.token'); setToken(null); }}>Sair</button>
         </div>
       </header>
-      {error && <div className="mx-auto mt-4 max-w-7xl rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      <Workspace onError={setError} />
+      <div className="mx-auto max-w-7xl px-4">
+        {pendingRequests > 0 && <div className="mt-4 rounded border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">Processando...</div>}
+        {notice && (
+          <div className="mt-4 flex items-start justify-between gap-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <span>{notice}</span>
+            <button className="font-medium text-red-800" type="button" onClick={() => setNotice('')}>Fechar</button>
+          </div>
+        )}
+      </div>
+      <Workspace onError={setNotice} />
     </div>
   );
 }
@@ -138,20 +259,53 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const [obras, setObras] = useState<Obra[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [parcelasPendentes, setParcelasPendentes] = useState<ParcelaPendente[]>([]);
   const [selectedObraId, setSelectedObraId] = useState('');
   const [activeTab, setActiveTab] = useState('resumo');
+  const [buscaObra, setBuscaObra] = useState('');
+  const [ordenacaoObras, setOrdenacaoObras] = useState('nome');
   const selectedObra = useMemo(() => obras.find((obra) => obra.id === selectedObraId), [obras, selectedObraId]);
+  const obrasFiltradas = useMemo(() => {
+    const busca = buscaObra.trim().toLowerCase();
+    if (!busca) {
+      return obras;
+    }
+
+    return obras.filter((obra) =>
+      obra.nome.toLowerCase().includes(busca)
+      || obraStatusLabel(obra.status).toLowerCase().includes(busca)
+      || (obra.endereco ?? '').toLowerCase().includes(busca));
+  }, [obras, buscaObra]);
+  const obrasVisiveis = useMemo(() => {
+    const ordenadas = [...obrasFiltradas];
+    ordenadas.sort((a, b) => {
+      if (ordenacaoObras === 'status') {
+        const status = obraStatusLabel(a.status).localeCompare(obraStatusLabel(b.status), 'pt-BR');
+        return status || a.nome.localeCompare(b.nome, 'pt-BR');
+      }
+      if (ordenacaoObras === 'saldoMaior') {
+        return b.saldoAtual - a.saldoAtual || a.nome.localeCompare(b.nome, 'pt-BR');
+      }
+      if (ordenacaoObras === 'saldoMenor') {
+        return a.saldoAtual - b.saldoAtual || a.nome.localeCompare(b.nome, 'pt-BR');
+      }
+      return a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+    return ordenadas;
+  }, [obrasFiltradas, ordenacaoObras]);
 
   async function load() {
     try {
-      const [obrasData, sociosData, dashData] = await Promise.all([
+      const [obrasData, sociosData, dashData, parcelasData] = await Promise.all([
         api<Obra[]>('/api/obras'),
         api<Socio[]>('/api/socios'),
-        api<Dashboard>('/api/dashboard/resumo')
+        api<Dashboard>('/api/dashboard/resumo'),
+        api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes')
       ]);
       setObras(obrasData);
       setSocios(sociosData);
       setDashboard(dashData);
+      setParcelasPendentes(parcelasData);
       setSelectedObraId((current) => current || obrasData[0]?.id || '');
       onError('');
     } catch (err) {
@@ -168,6 +322,9 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     { id: 'encerramento', label: 'Encerramento' },
     { id: 'socios', label: 'Socios' }
   ];
+  const parcelasVencidas = parcelasPendentes.filter((parcela) => parcela.status === 'Vencida');
+  const valorVencido = parcelasVencidas.reduce((total, parcela) => total + parcela.valor, 0);
+  const valorPendente = parcelasPendentes.reduce((total, parcela) => total + parcela.valor, 0);
 
   return (
     <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[300px_1fr]">
@@ -180,16 +337,47 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
             <Metric label="Gasto" value={money(dashboard?.totalGasto ?? 0)} />
           </div>
         </Panel>
+        <Panel title="Recebiveis">
+          <div className="grid grid-cols-2 gap-3">
+            <Metric label="Vencidas" value={String(parcelasVencidas.length)} />
+            <Metric label="Valor vencido" value={money(valorVencido)} />
+            <Metric label="Pendentes" value={String(parcelasPendentes.length)} />
+            <Metric label="Valor pendente" value={money(valorPendente)} />
+          </div>
+          <div className="mt-3 space-y-2">
+            {parcelasPendentes.slice(0, 4).map((parcela) => (
+              <button key={parcela.parcelaId} className={`w-full rounded border px-3 py-2 text-left text-sm ${parcela.status === 'Vencida' ? 'border-red-200 bg-red-50 text-red-800' : 'border-zinc-200 bg-white text-zinc-700'}`} onClick={() => { setSelectedObraId(parcela.obraId); setActiveTab('venda'); }}>
+                <span className="block font-medium">{parcela.obraNome} · Parcela {parcela.numero}</span>
+                <span className="text-xs opacity-75">{parcela.dataVencimento} · {money(parcela.valor)} · {parcela.status}</span>
+              </button>
+            ))}
+            {parcelasPendentes.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma parcela pendente.</p>}
+          </div>
+        </Panel>
         <Panel title="Obras">
           <ObraForm onDone={load} />
+          <input className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
+          <select className="input mt-2" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
+            <option value="nome">Ordenar por nome</option>
+            <option value="status">Ordenar por status</option>
+            <option value="saldoMaior">Maior saldo primeiro</option>
+            <option value="saldoMenor">Menor saldo primeiro</option>
+          </select>
+          <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
           <div className="mt-3 space-y-2">
-            {obras.map((obra) => (
-              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obra.id === selectedObraId ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white hover:border-zinc-400'}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); }}>
-                <span className="block font-medium">{obra.nome}</span>
-                <span className="text-xs opacity-75">{obraStatusLabel(obra.status)} · {money(obra.saldoAtual)}</span>
+            {obrasVisiveis.map((obra) => (
+              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); }}>
+                <span className="flex items-start justify-between gap-2">
+                  <span className="font-medium">{obra.nome}</span>
+                  <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${obraStatusBadgeClass(obra.status, obra.id === selectedObraId)}`}>
+                    {obraStatusLabel(obra.status)}
+                  </span>
+                </span>
+                <span className="mt-1 block text-xs opacity-75">{money(obra.saldoAtual)}</span>
               </button>
             ))}
             {obras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Crie uma obra para comecar.</p>}
+            {obras.length > 0 && obrasVisiveis.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma obra encontrada.</p>}
           </div>
         </Panel>
       </aside>
@@ -209,9 +397,12 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
 
             {activeTab === 'resumo' && (
               <Panel title="Resumo da obra">
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <ObraEditForm obra={selectedObra} onDone={load} />
-                  <ObraDetalhe obra={selectedObra} socios={socios} onDone={load} />
+                <div className="grid gap-4">
+                  <ResumoFinanceiroObra obraId={selectedObra.id} />
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <ObraEditForm obra={selectedObra} onDone={load} />
+                    <ObraDetalhe obra={selectedObra} socios={socios} onDone={load} />
+                  </div>
                 </div>
               </Panel>
             )}
@@ -227,6 +418,29 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
         )}
       </section>
     </main>
+  );
+}
+
+function ResumoFinanceiroObra({ obraId }: { obraId: string }) {
+  const [resumo, setResumo] = useState<ResumoFinanceiro | null>(null);
+
+  useEffect(() => {
+    api<ResumoFinanceiro>(`/api/obras/${obraId}/resumo-financeiro`).then(setResumo).catch(() => setResumo(null));
+  }, [obraId]);
+
+  if (!resumo) {
+    return <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Resumo financeiro ainda nao carregado.</p>;
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <Metric label="Saldo" value={money(resumo.saldoAtual)} />
+      <Metric label="Investido" value={money(resumo.totalInvestido)} />
+      <Metric label="Gasto" value={money(resumo.totalGasto)} />
+      <Metric label="Recebido" value={money(resumo.totalRecebido)} />
+      <Metric label="Permutas" value={money(resumo.valorPermutasEstimado)} />
+      <Metric label="Resultado" value={money(resumo.resultadoEconomico)} />
+    </div>
   );
 }
 
@@ -250,13 +464,28 @@ function ObraHeader({ obra }: { obra: Obra }) {
 
 function ObraForm({ onDone }: { onDone: () => void }) {
   const [nome, setNome] = useState('');
+  const [error, setError] = useState('');
+  const canSubmit = !isBlank(nome);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!canSubmit) {
+      setError('Informe o nome da obra.');
+      return;
+    }
+    setError('');
     await api('/api/obras', { method: 'POST', body: JSON.stringify({ nome, descricao: '', endereco: '', dataInicio: today(), dataPrevistaConclusao: null, status: 2 }) });
     setNome('');
     onDone();
   }
-  return <form onSubmit={submit} className="flex gap-2"><input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nova obra" /><button className="btn-primary">Criar</button></form>;
+  return (
+    <form onSubmit={submit} className="space-y-2">
+      <div className="flex gap-2">
+        <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nova obra" />
+        <button className="btn-primary" disabled={!canSubmit}>Criar</button>
+      </div>
+      {error && <ErrorText message={error} />}
+    </form>
+  );
 }
 
 function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
@@ -264,6 +493,8 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
   const [descricao, setDescricao] = useState(obra.descricao ?? '');
   const [endereco, setEndereco] = useState(obra.endereco ?? '');
   const [status, setStatus] = useState(String(obra.status));
+  const [error, setError] = useState('');
+  const canSubmit = !isBlank(nome);
 
   useEffect(() => {
     setNome(obra.nome);
@@ -274,6 +505,11 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (!canSubmit) {
+      setError('Informe o nome da obra.');
+      return;
+    }
+    setError('');
     await api(`/api/obras/${obra.id}`, {
       method: 'PUT',
       body: JSON.stringify({
@@ -290,7 +526,7 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="grid gap-2">
-      <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da obra" />
+      <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da obra" />
       <input className="input" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Endereco" />
       <textarea className="input min-h-20" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descricao" />
       <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -299,7 +535,8 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
         <option value="3">Vendida</option>
         <option value="5">Cancelada</option>
       </select>
-      <button className="btn-primary">Salvar obra</button>
+      {error && <ErrorText message={error} />}
+      <button className="btn-primary" disabled={!canSubmit}>Salvar obra</button>
     </form>
   );
 }
@@ -307,8 +544,19 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
 function SocioForm({ onDone }: { onDone: () => void }) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const canSubmit = !isBlank(nome) && isEmailValido(email);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (isBlank(nome)) {
+      setError('Informe o nome do socio.');
+      return;
+    }
+    if (!isEmailValido(email)) {
+      setError('Informe um email valido ou deixe em branco.');
+      return;
+    }
+    setError('');
     await api('/api/socios', { method: 'POST', body: JSON.stringify({ nome, email, documento: '', telefone: '', ativo: true }) });
     setNome('');
     setEmail('');
@@ -317,10 +565,11 @@ function SocioForm({ onDone }: { onDone: () => void }) {
   return (
     <Panel title="Socios">
       <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-        <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome" />
-        <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
-        <button className="btn-primary">Criar</button>
+        <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome" />
+        <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+        <button className="btn-primary" disabled={!canSubmit}>Criar</button>
       </form>
+      {error && <ErrorText message={error} />}
       <SociosEditor onDone={onDone} />
     </Panel>
   );
@@ -330,10 +579,21 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
   const [vinculos, setVinculos] = useState<ObraSocio[]>([]);
   const [socioId, setSocioId] = useState('');
   const [percentual, setPercentual] = useState('50');
+  const [error, setError] = useState('');
+  const canSubmit = !isBlank(socioId) && isPercentualValido(percentual);
   useEffect(() => { api<ObraSocio[]>(`/api/obras/${obra.id}/socios`).then(setVinculos).catch(() => setVinculos([])); }, [obra.id]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    await api(`/api/obras/${obra.id}/socios`, { method: 'POST', body: JSON.stringify({ socioId, percentualParticipacao: Number(percentual), observacao: '' }) });
+    if (!socioId) {
+      setError('Selecione um socio.');
+      return;
+    }
+    if (!isPercentualValido(percentual)) {
+      setError('Informe um percentual entre 0 e 100.');
+      return;
+    }
+    setError('');
+    await api(`/api/obras/${obra.id}/socios`, { method: 'POST', body: JSON.stringify({ socioId, percentualParticipacao: toNumber(percentual), observacao: '' }) });
     setSocioId('');
     onDone();
     setVinculos(await api<ObraSocio[]>(`/api/obras/${obra.id}/socios`));
@@ -350,8 +610,9 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
     <div className="grid gap-4">
       <form onSubmit={submit} className="grid gap-2">
         <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Selecionar socio</option>{socios.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select>
-        <input className="input" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="Percentual" />
-        <button className="btn-primary">Vincular socio</button>
+        <input className="input" type="number" min="0" max="100" step="0.01" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="Percentual" />
+        {error && <ErrorText message={error} />}
+        <button className="btn-primary" disabled={!canSubmit}>Vincular socio</button>
       </form>
       <div className="space-y-2">
         {vinculos.map((vinculo) => (
@@ -381,18 +642,28 @@ function SociosEditor({ onDone }: { onDone: () => void }) {
     onDone();
   }
 
+  async function remove(socio: Socio) {
+    if (!confirmarAcao('Remover este socio? Se ele ja possuir historico, sera apenas inativado.')) {
+      return;
+    }
+    await api(`/api/socios/${socio.id}`, { method: 'DELETE' });
+    await load();
+    onDone();
+  }
+
   return (
     <div className="mt-3 space-y-2">
-      {socios.map((socio) => <SocioEditor key={socio.id} socio={socio} onSave={save} />)}
+      {socios.map((socio) => <SocioEditor key={socio.id} socio={socio} onSave={save} onRemove={remove} />)}
     </div>
   );
 }
 
-function SocioEditor({ socio, onSave }: { socio: Socio; onSave: (socio: Socio) => void }) {
+function SocioEditor({ socio, onSave, onRemove }: { socio: Socio; onSave: (socio: Socio) => void; onRemove: (socio: Socio) => void }) {
   const [nome, setNome] = useState(socio.nome);
   const [email, setEmail] = useState(socio.email ?? '');
   const [telefone, setTelefone] = useState(socio.telefone ?? '');
   const [ativo, setAtivo] = useState(socio.ativo);
+  const canSubmit = !isBlank(nome) && isEmailValido(email);
 
   useEffect(() => {
     setNome(socio.nome);
@@ -402,21 +673,23 @@ function SocioEditor({ socio, onSave }: { socio: Socio; onSave: (socio: Socio) =
   }, [socio]);
 
   return (
-    <div className="grid gap-2 rounded border border-zinc-200 p-2 sm:grid-cols-[1fr_1fr_120px_80px_auto]">
-      <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
-      <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+    <div className="grid gap-2 rounded border border-zinc-200 p-2 sm:grid-cols-[1fr_1fr_120px_80px_auto_auto]">
+      <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} />
+      <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <input className="input" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Telefone" />
       <label className="flex items-center gap-2 text-sm text-zinc-600">
         <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
         Ativo
       </label>
-      <button className="btn-secondary" type="button" onClick={() => onSave({ ...socio, nome, email, telefone, ativo })}>Salvar</button>
+      <button className="btn-secondary" type="button" disabled={!canSubmit} onClick={() => onSave({ ...socio, nome, email, telefone, ativo })}>Salvar</button>
+      <button className="btn-secondary" type="button" disabled={!socio.ativo} onClick={() => onRemove(socio)}>Remover</button>
     </div>
   );
 }
 
 function PercentualEditor({ vinculo, onSave }: { vinculo: ObraSocio; onSave: (socioId: string, percentual: number) => void }) {
   const [percentual, setPercentual] = useState(String(vinculo.percentualParticipacao));
+  const canSubmit = isPercentualValido(percentual);
 
   useEffect(() => {
     setPercentual(String(vinculo.percentualParticipacao));
@@ -425,8 +698,8 @@ function PercentualEditor({ vinculo, onSave }: { vinculo: ObraSocio; onSave: (so
   return (
     <div className="grid gap-2 rounded border border-zinc-200 p-2 sm:grid-cols-[1fr_120px_auto]">
       <div className="flex items-center text-sm font-medium">{vinculo.socioNome}</div>
-      <input className="input" value={percentual} onChange={(e) => setPercentual(e.target.value)} />
-      <button className="btn-secondary" type="button" onClick={() => onSave(vinculo.socioId, Number(percentual))}>Salvar %</button>
+      <input className="input" type="number" min="0" max="100" step="0.01" value={percentual} onChange={(e) => setPercentual(e.target.value)} />
+      <button className="btn-secondary" type="button" disabled={!canSubmit} onClick={() => onSave(vinculo.socioId, toNumber(percentual))}>Salvar %</button>
     </div>
   );
 }
@@ -434,15 +707,31 @@ function PercentualEditor({ vinculo, onSave }: { vinculo: ObraSocio; onSave: (so
 function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [movs, setMovs] = useState<Movimento[]>([]);
   const [socios, setSocios] = useState<ObraSocio[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [valor, setValor] = useState('');
   const [descricao, setDescricao] = useState('');
   const [socioId, setSocioId] = useState('');
+  const [fornecedorId, setFornecedorId] = useState('');
+  const [novoFornecedor, setNovoFornecedor] = useState('');
+  const [categoriaDespesa, setCategoriaDespesa] = useState('99');
   const [filtroTexto, setFiltroTexto] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
-  useEffect(() => { api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`).then(setMovs); api<ObraSocio[]>(`/api/obras/${obraId}/socios`).then(setSocios); }, [obraId]);
+  const [error, setError] = useState('');
+  async function loadFinanceiro() {
+    const [movimentacoesData, sociosData, fornecedoresData] = await Promise.all([
+      api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`),
+      api<ObraSocio[]>(`/api/obras/${obraId}/socios`),
+      api<Fornecedor[]>('/api/fornecedores')
+    ]);
+    setMovs(movimentacoesData);
+    setSocios(sociosData);
+    setFornecedores(fornecedoresData);
+  }
+
+  useEffect(() => { void loadFinanceiro(); }, [obraId]);
   const movsFiltradas = useMemo(() => {
     const texto = filtroTexto.trim().toLowerCase();
     return movs.filter((movimentacao) => {
@@ -456,19 +745,54 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   }, [movs, filtroTexto, filtroTipo, filtroStatus, dataInicial, dataFinal]);
   const totalEntradasFiltradas = movsFiltradas.filter((movimentacao) => movimentacao.status === 1 && movimentacao.tipo !== 2).reduce((total, movimentacao) => total + movimentacao.valor, 0);
   const totalSaidasFiltradas = movsFiltradas.filter((movimentacao) => movimentacao.status === 1 && movimentacao.tipo === 2).reduce((total, movimentacao) => total + movimentacao.valor, 0);
+  const canAportar = !isBlank(socioId) && isPositive(valor);
+  const canDespesa = isPositive(valor) && !isBlank(descricao) && !isBlank(categoriaDespesa);
+  const canCriarFornecedor = !isBlank(novoFornecedor);
+  const fornecedoresAtivos = fornecedores.filter((fornecedor) => fornecedor.ativo);
+  const fornecedorSelecionado = fornecedores.find((fornecedor) => fornecedor.id === fornecedorId);
   async function aporte() {
-    await api(`/api/obras/${obraId}/aportes`, { method: 'POST', body: JSON.stringify({ socioId, valor: Number(valor), dataAporte: today(), descricao }) });
+    if (!canAportar) {
+      setError('Para registrar aporte, selecione o socio e informe valor maior que zero.');
+      return;
+    }
+    setError('');
+    await api(`/api/obras/${obraId}/aportes`, { method: 'POST', body: JSON.stringify({ socioId, valor: toNumber(valor), dataAporte: today(), descricao }) });
+    setValor('');
+    setDescricao('');
     onDone();
     setMovs(await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`));
   }
+  async function criarFornecedor() {
+    if (!canCriarFornecedor) {
+      setError('Informe o nome do fornecedor.');
+      return;
+    }
+    setError('');
+    const fornecedor = await api<Fornecedor>('/api/fornecedores', { method: 'POST', body: JSON.stringify({ nome: novoFornecedor, documento: '', telefone: '', ativo: true }) });
+    setNovoFornecedor('');
+    setFornecedorId(fornecedor.id);
+    setFornecedores(await api<Fornecedor[]>('/api/fornecedores'));
+  }
   async function despesa() {
-    await api(`/api/obras/${obraId}/despesas`, { method: 'POST', body: JSON.stringify({ categoria: 99, valor: Number(valor), dataDespesa: today(), descricao, fornecedor: '', documentoFiscal: '' }) });
+    if (!canDespesa) {
+      setError('Para registrar despesa, informe valor maior que zero e descricao.');
+      return;
+    }
+    setError('');
+    await api(`/api/obras/${obraId}/despesas`, { method: 'POST', body: JSON.stringify({ categoria: Number(categoriaDespesa), valor: toNumber(valor), dataDespesa: today(), descricao, fornecedor: fornecedorSelecionado?.nome ?? '', documentoFiscal: '' }) });
+    setValor('');
+    setDescricao('');
+    setCategoriaDespesa('99');
+    setFornecedorId('');
     onDone();
     setMovs(await api<Movimento[]>(`/api/obras/${obraId}/movimentacoes`));
   }
   async function cancelar(movimentacao: Movimento) {
     if (movimentacao.parcelaReceberId) {
       window.alert('Cancele pagamentos de parcelas na area de venda.');
+      return;
+    }
+    if (!confirmarAcao('Cancelar esta movimentacao? O saldo da obra sera recalculado e o historico permanecera registrado.')) {
       return;
     }
     await api(`/api/obras/${obraId}/movimentacoes/${movimentacao.id}/cancelar`, { method: 'POST' });
@@ -479,10 +803,22 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     <Panel title="Financeiro">
       <div className="grid gap-2 sm:grid-cols-2">
         <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Socio para aporte</option>{socios.map((s) => <option key={s.socioId} value={s.socioId}>{s.socioNome}</option>)}</select>
-        <input className="input" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor" />
+        <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor" />
+        <select className="input" value={categoriaDespesa} onChange={(e) => setCategoriaDespesa(e.target.value)}>
+          {categoriasDespesa.map((categoria) => <option key={categoria.value} value={categoria.value}>{categoria.label}</option>)}
+        </select>
+        <select className="input" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+          <option value="">Fornecedor da despesa</option>
+          {fornecedoresAtivos.map((fornecedor) => <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.nome}</option>)}
+        </select>
+        <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[1fr_auto]">
+          <input className="input" value={novoFornecedor} onChange={(e) => setNovoFornecedor(e.target.value)} placeholder="Novo fornecedor" />
+          <button className="btn-secondary" type="button" disabled={!canCriarFornecedor} onClick={criarFornecedor}>Cadastrar fornecedor</button>
+        </div>
         <input className="input sm:col-span-2" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descricao" />
-        <button className="btn-primary" onClick={aporte}>Aporte</button>
-        <button className="btn-secondary" onClick={despesa}>Despesa</button>
+        {error && <div className="sm:col-span-2"><ErrorText message={error} /></div>}
+        <button className="btn-primary" disabled={!canAportar} onClick={aporte}>Aporte</button>
+        <button className="btn-secondary" disabled={!canDespesa} onClick={despesa}>Despesa</button>
       </div>
       <div className="mt-3 grid gap-2 rounded border border-zinc-200 p-3 lg:grid-cols-[1fr_140px_140px_150px_150px_auto]">
         <input className="input" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} placeholder="Buscar no extrato" />
@@ -507,6 +843,16 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
         <Metric label="Saidas filtradas" value={money(totalSaidasFiltradas)} />
         <Metric label="Saldo filtrado" value={money(totalEntradasFiltradas - totalSaidasFiltradas)} />
       </div>
+      <div className="no-print mt-3 flex justify-end">
+        <button className="btn-secondary" type="button" disabled={movsFiltradas.length === 0} onClick={() => window.print()}>Imprimir extrato</button>
+      </div>
+      <RelatorioExtrato
+        movimentos={movsFiltradas}
+        dataInicial={dataInicial}
+        dataFinal={dataFinal}
+        totalEntradas={totalEntradasFiltradas}
+        totalSaidas={totalSaidasFiltradas}
+      />
       <div className="mt-3 overflow-auto">
         <table className="w-full text-left text-sm">
           <thead>
@@ -539,39 +885,121 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   );
 }
 
+function RelatorioExtrato({ movimentos, dataInicial, dataFinal, totalEntradas, totalSaidas }: { movimentos: Movimento[]; dataInicial: string; dataFinal: string; totalEntradas: number; totalSaidas: number }) {
+  const periodo = dataInicial || dataFinal ? `${dataInicial || 'inicio'} ate ${dataFinal || 'hoje'}` : 'Todos os lancamentos filtrados';
+
+  return (
+    <div className="print-report mt-4 hidden rounded border border-zinc-200 bg-white p-4 print:block">
+      <div className="mb-5 flex flex-col gap-2 border-b border-zinc-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Relatorio de extrato financeiro</div>
+          <h3 className="text-2xl font-semibold">Movimentacoes da obra</h3>
+          <p className="text-sm text-zinc-500">Periodo: {periodo}</p>
+        </div>
+        <div className="text-left text-sm text-zinc-500 sm:text-right">
+          <p>Emitido em {today()}</p>
+          <p>{movimentos.length} lancamento(s)</p>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric label="Entradas" value={money(totalEntradas)} />
+        <Metric label="Saidas" value={money(totalSaidas)} />
+        <Metric label="Saldo do periodo" value={money(totalEntradas - totalSaidas)} />
+      </div>
+      <div className="mt-5 overflow-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr>
+              {['Data', 'Tipo', 'Categoria', 'Descricao', 'Valor', 'Status'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {movimentos.map((movimento) => (
+              <tr key={movimento.id}>
+                <td className="border-b border-zinc-100 py-2">{movimento.dataMovimentacao}</td>
+                <td className="border-b border-zinc-100 py-2">{movimentoTipoLabel(movimento.tipo)}</td>
+                <td className="border-b border-zinc-100 py-2">{movimento.categoria}</td>
+                <td className="border-b border-zinc-100 py-2">{movimento.descricao}</td>
+                <td className="border-b border-zinc-100 py-2">{money(movimento.valor)}</td>
+                <td className="border-b border-zinc-100 py-2">{movimentoStatusLabel(movimento.status)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [venda, setVenda] = useState<Venda | null>(null);
   const [comprador, setComprador] = useState('');
   const [valor, setValor] = useState('');
   const [entrada, setEntrada] = useState('');
+  const [parcelasIniciaisValor, setParcelasIniciaisValor] = useState('');
+  const [parcelasIniciaisQtd, setParcelasIniciaisQtd] = useState('');
+  const [parcelasIniciaisVencimento, setParcelasIniciaisVencimento] = useState(addMonths(today(), 1));
   const [permuta, setPermuta] = useState('');
   const [valorPermuta, setValorPermuta] = useState('');
   const [parcelaValor, setParcelaValor] = useState('');
   const [parcelaVencimento, setParcelaVencimento] = useState(addMonths(today(), 1));
   const [parcelasGerar, setParcelasGerar] = useState('1');
+  const [error, setError] = useState('');
   useEffect(() => { api<Venda>(`/api/obras/${obraId}/venda`).then(setVenda).catch(() => setVenda(null)); }, [obraId]);
+  const temParcelamentoInicial = !isBlank(parcelasIniciaisValor) || !isBlank(parcelasIniciaisQtd);
+  const parcelamentoInicialValido = !temParcelamentoInicial || (isPositive(parcelasIniciaisValor) && Number.isInteger(toNumber(parcelasIniciaisQtd)) && toNumber(parcelasIniciaisQtd) > 0 && !isBlank(parcelasIniciaisVencimento));
+  const canCriarVenda = !isBlank(comprador) && isPositive(valor) && (isBlank(entrada) || (isNonNegative(entrada) && toNumber(entrada) <= toNumber(valor))) && parcelamentoInicialValido;
+  const canAddParcelas = isPositive(parcelaValor) && !isBlank(parcelaVencimento) && Number.isInteger(toNumber(parcelasGerar)) && toNumber(parcelasGerar) > 0;
+  const canAddPermuta = !isBlank(permuta) && isPositive(valorPermuta);
   async function reloadVenda() {
     setVenda(await api<Venda>(`/api/obras/${obraId}/venda`));
   }
   async function criar() {
-    const result = await api<Venda>(`/api/obras/${obraId}/venda`, { method: 'POST', body: JSON.stringify({ tipo: 4, valorTotalNegociado: Number(valor), valorEntrada: Number(entrada || 0), dataVenda: today(), compradorNome: comprador, compradorDocumento: '', observacao: '', parcelas: [] }) });
+    if (!canCriarVenda) {
+      setError('Informe comprador, valor total, entrada valida e parcelamento valido.');
+      return;
+    }
+    setError('');
+    const parcelas = temParcelamentoInicial
+      ? Array.from({ length: toNumber(parcelasIniciaisQtd) }, (_, index) => ({
+          numero: index + 1,
+          valor: toNumber(parcelasIniciaisValor),
+          dataVencimento: addMonths(parcelasIniciaisVencimento, index)
+        }))
+      : [];
+    const result = await api<Venda>(`/api/obras/${obraId}/venda`, { method: 'POST', body: JSON.stringify({ tipo: 4, valorTotalNegociado: toNumber(valor), valorEntrada: isBlank(entrada) ? 0 : toNumber(entrada), dataVenda: today(), compradorNome: comprador, compradorDocumento: '', observacao: '', parcelas }) });
     setVenda(result);
+    setComprador('');
+    setValor('');
+    setEntrada('');
+    setParcelasIniciaisValor('');
+    setParcelasIniciaisQtd('');
     onDone();
   }
   async function addPermuta() {
     if (!venda) return;
-    await api(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: Number(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: 1 }) });
+    if (!canAddPermuta) {
+      setError('Informe descricao e valor estimado da permuta.');
+      return;
+    }
+    setError('');
+    await api(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: toNumber(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: 1 }) });
     setPermuta('');
     setValorPermuta('');
     await reloadVenda();
   }
   async function addParcelas() {
     if (!venda) return;
-    const quantidade = Math.max(1, Number(parcelasGerar || 1));
+    if (!canAddParcelas) {
+      setError('Informe valor da parcela, vencimento e quantidade valida.');
+      return;
+    }
+    setError('');
+    const quantidade = Math.max(1, toNumber(parcelasGerar || '1'));
     const ultimaParcela = venda.parcelas.reduce((max, parcela) => Math.max(max, parcela.numero), 0);
     const parcelas = Array.from({ length: quantidade }, (_, index) => ({
       numero: ultimaParcela + index + 1,
-      valor: Number(parcelaValor),
+      valor: toNumber(parcelaValor),
       dataVencimento: addMonths(parcelaVencimento, index)
     }));
     await api(`/api/vendas/${venda.id}/parcelas`, { method: 'POST', body: JSON.stringify(parcelas) });
@@ -585,6 +1013,9 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     onDone();
   }
   async function cancelarPagamento(parcelaId: string) {
+    if (!confirmarAcao('Cancelar o pagamento desta parcela? O valor sera removido do caixa da obra.')) {
+      return;
+    }
     await api(`/api/parcelas/${parcelaId}/cancelar-pagamento`, { method: 'POST' });
     await reloadVenda();
     onDone();
@@ -594,9 +1025,15 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       {!venda ? (
         <div className="grid gap-2">
           <input className="input" value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Comprador" />
-          <input className="input" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor total" />
-          <input className="input" value={entrada} onChange={(e) => setEntrada(e.target.value)} placeholder="Entrada" />
-          <button className="btn-primary" onClick={criar}>Registrar venda</button>
+          <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor total" />
+          <input className="input" type="number" min="0" step="0.01" value={entrada} onChange={(e) => setEntrada(e.target.value)} placeholder="Entrada" />
+          <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-3">
+            <input className="input" type="number" min="0.01" step="0.01" value={parcelasIniciaisValor} onChange={(e) => setParcelasIniciaisValor(e.target.value)} placeholder="Valor da parcela" />
+            <input className="input" type="number" min="1" step="1" value={parcelasIniciaisQtd} onChange={(e) => setParcelasIniciaisQtd(e.target.value)} placeholder="Qtd. parcelas" />
+            <input className="input" type="date" value={parcelasIniciaisVencimento} onChange={(e) => setParcelasIniciaisVencimento(e.target.value)} />
+          </div>
+          {error && <ErrorText message={error} />}
+          <button className="btn-primary" disabled={!canCriarVenda} onClick={criar}>Registrar venda</button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -606,10 +1043,10 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
             <Metric label="Parcelas pendentes" value={String(venda.parcelas.filter((p) => p.status === 1 || p.status === 3).length)} />
           </div>
           <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
-            <input className="input" value={parcelaValor} onChange={(e) => setParcelaValor(e.target.value)} placeholder="Valor da parcela" />
+            <input className="input" type="number" min="0.01" step="0.01" value={parcelaValor} onChange={(e) => setParcelaValor(e.target.value)} placeholder="Valor da parcela" />
             <input className="input" type="date" value={parcelaVencimento} onChange={(e) => setParcelaVencimento(e.target.value)} />
-            <input className="input" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
-            <button className="btn-secondary" onClick={addParcelas}>Gerar</button>
+            <input className="input" type="number" min="1" step="1" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
+            <button className="btn-secondary" disabled={!canAddParcelas} onClick={addParcelas}>Gerar</button>
           </div>
           <div className="overflow-auto">
             <table className="w-full text-left text-sm">
@@ -640,9 +1077,10 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
           </div>
           <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-[1fr_160px_auto]">
             <input className="input" value={permuta} onChange={(e) => setPermuta(e.target.value)} placeholder="Descricao da permuta" />
-            <input className="input" value={valorPermuta} onChange={(e) => setValorPermuta(e.target.value)} placeholder="Valor" />
-            <button className="btn-secondary" onClick={addPermuta}>Adicionar</button>
+            <input className="input" type="number" min="0.01" step="0.01" value={valorPermuta} onChange={(e) => setValorPermuta(e.target.value)} placeholder="Valor" />
+            <button className="btn-secondary" disabled={!canAddPermuta} onClick={addPermuta}>Adicionar</button>
           </div>
+          {error && <ErrorText message={error} />}
           <Table headers={['Permuta', 'Valor']} rows={venda.permutas.map((p) => [p.descricao, money(p.valorEstimado)])} />
         </div>
       )}
@@ -653,13 +1091,20 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
 function Encerramento({ obra, onDone }: { obra: Obra; onDone: () => void }) {
   const [pre, setPre] = useState<PreFechamento | null>(null);
   async function carregar() { setPre(await api<PreFechamento>(`/api/obras/${obra.id}/pre-fechamento`)); }
-  async function encerrar() { await api(`/api/obras/${obra.id}/encerrar`, { method: 'POST', body: JSON.stringify({ observacao: 'Encerrado pelo sistema' }) }); await carregar(); onDone(); }
+  async function encerrar() {
+    if (!confirmarAcao('Encerrar esta obra definitivamente? Depois disso nenhuma movimentacao financeira podera ser adicionada.')) {
+      return;
+    }
+    await api(`/api/obras/${obra.id}/encerrar`, { method: 'POST', body: JSON.stringify({ observacao: 'Encerrado pelo sistema' }) });
+    await carregar();
+    onDone();
+  }
   return (
     <Panel title="Encerramento">
       <div className="no-print mb-4 flex flex-wrap gap-2">
         <button className="btn-secondary" onClick={carregar}>Gerar previa</button>
         <button className="btn-secondary" disabled={!pre} onClick={() => window.print()}>Imprimir</button>
-        <button className="btn-primary" onClick={encerrar}>Encerrar obra</button>
+        <button className="btn-primary" disabled={!pre || pre.pendencias.length > 0 || obra.status === 4} onClick={encerrar}>Encerrar obra</button>
       </div>
       {!pre && <p className="text-sm text-zinc-500">Gere a previa para conferir totais, pendencias e distribuicao antes do encerramento.</p>}
       {pre && <RelatorioFechamento obra={obra} pre={pre} />}
@@ -735,6 +1180,10 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 
 function Field({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return <label className="mb-3 block text-sm"><span className="mb-1 block text-zinc-600">{label}</span><input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} /></label>;
+}
+
+function ErrorText({ message }: { message: string }) {
+  return <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

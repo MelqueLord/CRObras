@@ -211,6 +211,35 @@ namespace CRObras.Infrastructure.Data.Migrations
                     b.ToTable("encerramentos_obra", (string)null);
                 });
 
+            modelBuilder.Entity("CRObras.Domain.Entities.Fornecedor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Ativo")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Documento")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Nome")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("Telefone")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nome");
+
+                    b.ToTable("fornecedores", (string)null);
+                });
+
             modelBuilder.Entity("CRObras.Domain.Entities.MovimentacaoFinanceira", b =>
                 {
                     b.Property<Guid>("Id")

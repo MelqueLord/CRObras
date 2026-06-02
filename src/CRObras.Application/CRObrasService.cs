@@ -107,6 +107,78 @@ public sealed class CRObrasService(IAppDbContext db)
         return ToSocioResponse(socio);
     }
 
+    public async Task<SocioRemovalResponse> RemoverOuInativarSocioAsync(Guid id, CancellationToken ct)
+    {
+        var socio = await db.Socios.FirstOrDefaultAsync(s => s.Id == id, ct)
+            ?? throw new ServiceException("Socio nao encontrado.");
+
+        var possuiHistorico = await db.ObraSocios.AnyAsync(os => os.SocioId == id, ct)
+            || await db.Aportes.AnyAsync(a => a.SocioId == id, ct)
+            || await db.MovimentacoesFinanceiras.AnyAsync(m => m.SocioId == id, ct)
+            || await db.DistribuicoesResultado.AnyAsync(d => d.SocioId == id, ct);
+
+        if (possuiHistorico)
+        {
+            socio.Ativo = false;
+            await db.SaveChangesAsync(ct);
+            return new SocioRemovalResponse(id, "Inativado", "Socio possui historico e foi inativado.");
+        }
+
+        db.Socios.Remove(socio);
+        await db.SaveChangesAsync(ct);
+        return new SocioRemovalResponse(id, "Removido", "Socio sem uso foi removido.");
+    }
+
+    public async Task<IReadOnlyCollection<FornecedorResponse>> ListarFornecedoresAsync(CancellationToken ct)
+    {
+        var fornecedores = await db.Fornecedores.AsNoTracking().OrderBy(f => f.Nome).ToListAsync(ct);
+        return fornecedores.Select(ToFornecedorResponse).ToList();
+    }
+
+    public async Task<FornecedorResponse> CriarFornecedorAsync(FornecedorRequest request, CancellationToken ct)
+    {
+        ValidarTexto(request.Nome, "Nome do fornecedor");
+        var nome = request.Nome.Trim();
+        var existe = await db.Fornecedores.AnyAsync(f => f.Nome.ToLower() == nome.ToLower(), ct);
+        if (existe)
+        {
+            throw new ServiceException("Fornecedor ja cadastrado.");
+        }
+
+        var fornecedor = new Fornecedor
+        {
+            Nome = nome,
+            Documento = request.Documento,
+            Telefone = request.Telefone,
+            Ativo = request.Ativo
+        };
+
+        db.Fornecedores.Add(fornecedor);
+        await db.SaveChangesAsync(ct);
+        return ToFornecedorResponse(fornecedor);
+    }
+
+    public async Task<FornecedorResponse> AtualizarFornecedorAsync(Guid id, FornecedorRequest request, CancellationToken ct)
+    {
+        var fornecedor = await db.Fornecedores.FirstOrDefaultAsync(f => f.Id == id, ct)
+            ?? throw new ServiceException("Fornecedor nao encontrado.");
+        ValidarTexto(request.Nome, "Nome do fornecedor");
+        var nome = request.Nome.Trim();
+        var existe = await db.Fornecedores.AnyAsync(f => f.Id != id && f.Nome.ToLower() == nome.ToLower(), ct);
+        if (existe)
+        {
+            throw new ServiceException("Fornecedor ja cadastrado.");
+        }
+
+        fornecedor.Nome = nome;
+        fornecedor.Documento = request.Documento;
+        fornecedor.Telefone = request.Telefone;
+        fornecedor.Ativo = request.Ativo;
+
+        await db.SaveChangesAsync(ct);
+        return ToFornecedorResponse(fornecedor);
+    }
+
     public async Task<IReadOnlyCollection<ObraSocioResponse>> ListarSociosDaObraAsync(Guid obraId, CancellationToken ct)
     {
         await GarantirObraExisteAsync(obraId, ct);
@@ -598,6 +670,7 @@ public sealed class CRObrasService(IAppDbContext db)
 
     private static ObraResponse ToObraResponse(Obra obra) => new(obra.Id, obra.Nome, obra.Descricao, obra.Endereco, obra.DataInicio, obra.DataPrevistaConclusao, obra.Status, obra.SaldoAtual, obra.DataEncerramento);
     private static SocioResponse ToSocioResponse(Socio socio) => new(socio.Id, socio.Nome, socio.Documento, socio.Email, socio.Telefone, socio.Ativo);
+    private static FornecedorResponse ToFornecedorResponse(Fornecedor fornecedor) => new(fornecedor.Id, fornecedor.Nome, fornecedor.Documento, fornecedor.Telefone, fornecedor.Ativo);
     private static MovimentacaoResponse ToMovimentacaoResponse(MovimentacaoFinanceira mov) => new(mov.Id, mov.ObraId, mov.Tipo, mov.Categoria, mov.Valor, mov.DataMovimentacao, mov.Descricao, mov.SocioId, mov.ParcelaReceberId, mov.Status, mov.CriadoEm);
     private static ParcelaResponse ToParcelaResponse(ParcelaReceber parcela) => new(parcela.Id, parcela.Numero, parcela.Valor, parcela.DataVencimento, parcela.DataPagamento, parcela.Status);
     private static PermutaResponse ToPermutaResponse(AtivoPermuta permuta) => new(permuta.Id, permuta.Tipo, permuta.Descricao, permuta.ValorEstimado, permuta.DataRecebimento, permuta.Status);

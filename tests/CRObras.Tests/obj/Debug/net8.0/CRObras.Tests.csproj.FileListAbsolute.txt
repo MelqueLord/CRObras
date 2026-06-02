@@ -441,3 +441,4 @@
 /home/lordelo/Documentos/Projetos/CRObras/tests/CRObras.Tests/bin/Debug/net8.0/System.IdentityModel.Tokens.Jwt.dll
 /home/lordelo/Documentos/Projetos/CRObras/tests/CRObras.Tests/bin/Debug/net8.0/CRObras.Api.dll
 /home/lordelo/Documentos/Projetos/CRObras/tests/CRObras.Tests/bin/Debug/net8.0/CRObras.Api.pdb
+/home/lordelo/Documentos/Projetos/CRObras/tests/CRObras.Tests/obj/Debug/net8.0/CRObras.Tests.sourcelink.json

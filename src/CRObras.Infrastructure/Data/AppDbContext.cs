@@ -12,6 +12,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
 {
     public DbSet<Obra> Obras => Set<Obra>();
     public DbSet<Socio> Socios => Set<Socio>();
+    public DbSet<Fornecedor> Fornecedores => Set<Fornecedor>();
     public DbSet<ObraSocio> ObraSocios => Set<ObraSocio>();
     public DbSet<MovimentacaoFinanceira> MovimentacoesFinanceiras => Set<MovimentacaoFinanceira>();
     public DbSet<Aporte> Aportes => Set<Aporte>();
@@ -53,6 +54,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(e => e.Documento).HasMaxLength(32);
             entity.Property(e => e.Email).HasMaxLength(160);
             entity.Property(e => e.Telefone).HasMaxLength(40);
+        });
+
+        builder.Entity<Fornecedor>(entity =>
+        {
+            entity.ToTable("fornecedores");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nome).HasMaxLength(160).IsRequired();
+            entity.Property(e => e.Documento).HasMaxLength(32);
+            entity.Property(e => e.Telefone).HasMaxLength(40);
+            entity.HasIndex(e => e.Nome);
         });
 
         builder.Entity<ObraSocio>(entity =>

@@ -18,4 +18,7 @@ public sealed class SociosController(CRObrasService service) : ControllerBase
 
     [HttpPut("{id:guid}")]
     public async Task<SocioResponse> Atualizar(Guid id, SocioRequest request, CancellationToken ct) => await service.AtualizarSocioAsync(id, request, ct);
+
+    [HttpDelete("{id:guid}")]
+    public async Task<SocioRemovalResponse> Remover(Guid id, CancellationToken ct) => await service.RemoverOuInativarSocioAsync(id, ct);
 }

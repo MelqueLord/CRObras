@@ -125,3 +125,4 @@
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Api/obj/Debug/net8.0/CRObras.Api.pdb
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Api/obj/Debug/net8.0/CRObras.Api.genruntimeconfig.cache
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Api/obj/Debug/net8.0/ref/CRObras.Api.dll
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Api/obj/Debug/net8.0/CRObras.Api.sourcelink.json

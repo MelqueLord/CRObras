@@ -9,3 +9,4 @@
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/refint/CRObras.Domain.dll
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.pdb
 /home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/ref/CRObras.Domain.dll
+/home/lordelo/Documentos/Projetos/CRObras/src/CRObras.Domain/obj/Debug/net8.0/CRObras.Domain.sourcelink.json

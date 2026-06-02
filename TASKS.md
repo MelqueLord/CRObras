@@ -27,13 +27,28 @@
 23. Adicionar filtros no extrato financeiro.
 24. Adicionar relatorio de fechamento em tela/impressao.
 25. Adicionar testes de integracao dos controllers.
+26. Adicionar validacoes frontend mais completas.
+27. Melhorar tratamento global de erros nas operacoes da UI.
+28. Adicionar selecao de categoria de despesa na UI.
+29. Adicionar relatorio detalhado de extrato por periodo.
+30. Adicionar confirmacao antes de acoes destrutivas ou definitivas.
+31. Melhorar campos de venda para criacao inicial com parcelas.
+32. Adicionar indicadores de parcelas vencidas no dashboard lateral.
+33. Adicionar resumo financeiro por obra na aba Resumo.
+34. Adicionar exclusao/inativacao segura de socios sem uso.
+35. Adicionar busca na lista lateral de obras.
+36. Adicionar ordenacao da lista de obras por status/saldo/nome.
+37. Adicionar destaque visual para obras encerradas/canceladas.
+38. Adicionar cadastro de fornecedor simples para despesas recorrentes.
 
 ## Ajustes Implementados Agora
 
-1. Teste de integracao do health check.
-2. Teste de integracao do login com admin seedado.
-3. Teste de integracao autenticado para criar e listar obras.
+1. Criado cadastro persistido de fornecedores com nome, documento, telefone e status ativo.
+2. Criados endpoints autenticados para listar, criar e atualizar fornecedores.
+3. Tela Financeiro agora permite cadastrar fornecedor rapidamente e selecionar fornecedor ao registrar despesa.
 
 ## Proximas Tasks Recomendadas
 
-26. Adicionar validacoes frontend mais completas.
+39. Adicionar filtro rapido por status na lista lateral de obras.
+40. Adicionar ordenacao de parcelas por vencimento/status.
+41. Adicionar filtro de extrato por fornecedor.

@@ -7,6 +7,7 @@ public interface IAppDbContext
 {
     DbSet<Obra> Obras { get; }
     DbSet<Socio> Socios { get; }
+    DbSet<Fornecedor> Fornecedores { get; }
     DbSet<ObraSocio> ObraSocios { get; }
     DbSet<MovimentacaoFinanceira> MovimentacoesFinanceiras { get; }
     DbSet<Aporte> Aportes { get; }
