@@ -13,7 +13,7 @@ type Movimento = { id: string; tipo: number; categoria: string; valor: number; d
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
 type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
 type Material = { id: string; nome: string; quantidade: number; precoUnitario: number };
-type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; status: number; parcelas: Parcela[]; permutas: Permuta[] };
+type Venda = { id: string; tipo: number; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; dataVenda: string; status: number; parcelas: Parcela[]; permutas: Permuta[] };
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
 type PreFechamento = { totalInvestido: number; totalGasto: number; totalRecebido: number; valorPermutasEstimado: number; resultadoFinanceiro: number; saldoAtual: number; pendencias: string[]; distribuicoes: { socioNome: string; valorInvestido: number; valorResultado: number; valorAReceberOuPagar: number }[] };
@@ -85,6 +85,31 @@ function parcelaStatusLabel(status: number) {
   return 'Pendente';
 }
 
+function parcelaStatusTone(status: number) {
+  if (status === 2) return 'success';
+  if (status === 3) return 'danger';
+  if (status === 4) return 'muted';
+  return 'warning';
+}
+
+function permutaStatusLabel(status: number) {
+  if (status === 1) return 'Recebida';
+  if (status === 3) return 'Vendida';
+  return 'Pendente';
+}
+
+function permutaStatusTone(status: number) {
+  if (status === 1 || status === 3) return 'success';
+  return 'warning';
+}
+
+function vendaTipoLabel(tipo: number) {
+  if (tipo === 1) return 'Dinheiro';
+  if (tipo === 2) return 'Parcelada';
+  if (tipo === 3) return 'Permuta';
+  return 'Mista';
+}
+
 function movimentoStatusLabel(status: number) {
   return status === 2 ? 'Cancelada' : 'Confirmada';
 }
@@ -142,6 +167,13 @@ function toNumber(value: string) {
   return Number(String(value).replace(',', '.'));
 }
 
+function parseDecimalInput(value: string) {
+  const text = value.trim();
+  if (!text) return 0;
+  const normalized = text.includes(',') ? text.replace(/\./g, '').replace(',', '.') : text;
+  return Number(normalized);
+}
+
 function isPositive(value: string) {
   const number = toNumber(value);
   return Number.isFinite(number) && number > 0;
@@ -171,6 +203,16 @@ function LoadingStrip({ label = 'Carregando...' }: { label?: string }) {
       {label}
     </div>
   );
+}
+
+function StatusBadge({ label, tone = 'muted' }: { label: string; tone?: 'success' | 'warning' | 'danger' | 'muted' }) {
+  const classes = {
+    success: 'bg-emerald-100 text-emerald-800',
+    warning: 'bg-amber-100 text-amber-800',
+    danger: 'bg-red-100 text-red-800',
+    muted: 'bg-zinc-100 text-zinc-700'
+  };
+  return <span className={`status-badge ${classes[tone]}`}>{label}</span>;
 }
 
 type ApiOptions = RequestInit & { silent?: boolean; timeoutMs?: number };
@@ -462,6 +504,14 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     void api('/api/me/recent-obras', { method: 'DELETE' }).then(() => setRecentObras([])).catch(() => setRecentObras([]));
   }
 
+  function removeRecent(obraId: string) {
+    void api(`/api/me/recent-obras/${obraId}`, { method: 'DELETE' }).then(() => {
+      setRecentObras((current) => current.filter((id) => id !== obraId));
+    }).catch(() => {
+      setRecentObras((current) => current.filter((id) => id !== obraId));
+    });
+  }
+
   const tabs = [
     { id: 'resumo', label: 'Resumo' },
     { id: 'financeiro', label: 'Financeiro' },
@@ -518,6 +568,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                   </button>
                   <div className="flex gap-1">
                     <button title="Abrir financeiro" className="btn-secondary text-xs" onClick={() => { setSelectedObraId(obra.id); setActiveTab('financeiro'); recordRecentObra(obra.id); }}>Fin</button>
+                    <button title="Remover atalho" className="btn-secondary text-xs" onClick={() => removeRecent(obra.id)}>Remover</button>
                   </div>
                 </div>
               );
@@ -916,12 +967,21 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   async function adicionar(event?: React.FormEvent) {
     if (event) event.preventDefault();
     if (!nome.trim()) return;
-    const q = Number(String(quantidade).replace(',', '.')) || 0;
-    const p = Number(String(preco).replace('.', '').replace(',', '.')) || 0;
+    const q = parseDecimalInput(quantidade) || 0;
+    const p = parseDecimalInput(preco) || 0;
     const body = { nome: nome.trim(), quantidade: q, precoUnitario: p };
     const created = await api<Material>(`/api/obras/${obraId}/materiais`, { method: 'POST', body: JSON.stringify(body) });
     setMateriais((current) => [created, ...current]);
     setNome(''); setQuantidade('1'); setPreco('0,00');
+    onDone();
+  }
+
+  async function salvar(material: Material, changes: Omit<Material, 'id'>) {
+    const updated = await api<Material>(`/api/obras/${obraId}/materiais/${material.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(changes)
+    });
+    setMateriais((current) => current.map((item) => item.id === updated.id ? updated : item));
     onDone();
   }
 
@@ -945,15 +1005,7 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       <div className="mt-3 space-y-2">
         {materiais.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum material registrado para esta obra.</p>}
         {materiais.map((m) => (
-          <div key={m.id} className="flex items-center justify-between rounded border px-3 py-2">
-            <div>
-              <div className="font-medium">{m.nome}</div>
-              <div className="text-xs text-zinc-500">{m.quantidade} × {money(m.precoUnitario)} = {money(m.quantidade * m.precoUnitario)}</div>
-            </div>
-            <div>
-              <button className="btn-secondary" onClick={() => remover(m.id)}>Remover</button>
-            </div>
-          </div>
+          <MaterialRow key={m.id} material={m} onSave={salvar} onRemove={remover} />
         ))}
       </div>
       <div className="mt-3 text-right font-medium">Total gasto com materiais: {money(total)}</div>
@@ -961,6 +1013,59 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
         <button className="btn-secondary" onClick={() => { downloadCsv(`materiais-${obraId}-${today()}.csv`, ['Nome','Quantidade','PrecoUnitario','Total'], materiais.map(m => [m.nome, m.quantidade, m.precoUnitario.toFixed(2).replace('.',','), (m.quantidade*m.precoUnitario).toFixed(2).replace('.',',')])); }}>Exportar CSV</button>
       </div>
     </Panel>
+  );
+}
+
+function MaterialRow({ material, onSave, onRemove }: { material: Material; onSave: (material: Material, changes: Omit<Material, 'id'>) => Promise<void>; onRemove: (id: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [nome, setNome] = useState(material.nome);
+  const [quantidade, setQuantidade] = useState(String(material.quantidade));
+  const [preco, setPreco] = useState(material.precoUnitario.toFixed(2).replace('.', ','));
+  const q = parseDecimalInput(quantidade);
+  const p = parseDecimalInput(preco);
+  const canSubmit = nome.trim().length > 0 && Number.isFinite(q) && q > 0 && Number.isFinite(p) && p >= 0;
+
+  function resetForm() {
+    setNome(material.nome);
+    setQuantidade(String(material.quantidade));
+    setPreco(material.precoUnitario.toFixed(2).replace('.', ','));
+  }
+
+  useEffect(() => {
+    resetForm();
+  }, [material]);
+
+  if (!editing) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded border px-3 py-2">
+        <div>
+          <div className="font-medium">{material.nome}</div>
+          <div className="text-xs text-zinc-500">{material.quantidade} x {money(material.precoUnitario)} = {money(material.quantidade * material.precoUnitario)}</div>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-secondary" type="button" onClick={() => setEditing(true)}>Editar</button>
+          <button className="btn-secondary" type="button" onClick={() => onRemove(material.id)}>Remover</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="grid gap-2 rounded border border-zinc-300 bg-zinc-50 p-2 sm:grid-cols-[1fr_120px_120px_auto_auto]"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        await onSave(material, { nome: nome.trim(), quantidade: q, precoUnitario: p });
+        setEditing(false);
+      }}
+    >
+      <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
+      <input className="input" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+      <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} />
+      <button className="btn-primary" type="submit" disabled={!canSubmit}>Salvar</button>
+      <button className="btn-secondary" type="button" onClick={() => { resetForm(); setEditing(false); }}>Cancelar</button>
+    </form>
   );
 }
 
@@ -1066,6 +1171,16 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     setFornecedorId(fornecedor.id);
     setFornecedores((current) => current.some((item) => item.id === fornecedor.id) ? current : [...current, fornecedor]);
   }
+  async function salvarFornecedor(fornecedor: Fornecedor) {
+    const atualizado = await api<Fornecedor>(`/api/fornecedores/${fornecedor.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(fornecedor)
+    });
+    setFornecedores((current) => current.map((item) => item.id === atualizado.id ? atualizado : item));
+    if (!atualizado.ativo && fornecedorId === atualizado.id) {
+      setFornecedorId('');
+    }
+  }
   async function despesa() {
     if (!canDespesa) {
       setError('Para registrar despesa, informe valor maior que zero e descricao.');
@@ -1123,6 +1238,11 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
           <input className="input" value={novoFornecedor} onChange={(e) => setNovoFornecedor(e.target.value)} placeholder="Novo fornecedor" />
           <button className="btn-secondary" type="button" disabled={!canCriarFornecedor} onClick={criarFornecedor}>Cadastrar fornecedor</button>
         </div>
+        {fornecedores.length > 0 && (
+          <div className="sm:col-span-2">
+            <FornecedorManager fornecedores={fornecedores} onSave={salvarFornecedor} />
+          </div>
+        )}
         <input className="input sm:col-span-2" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descricao" />
         {error && <div className="sm:col-span-2"><ErrorText message={error} /></div>}
         <button className="btn-primary" disabled={!canAportar} onClick={aporte}>Aporte</button>
@@ -1200,6 +1320,246 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   );
 }
 
+function FornecedorManager({ fornecedores, onSave }: { fornecedores: Fornecedor[]; onSave: (fornecedor: Fornecedor) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded border border-zinc-200">
+      <button className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium" type="button" onClick={() => setOpen((value) => !value)}>
+        <span>Fornecedores cadastrados</span>
+        <span className="text-xs text-zinc-500">{open ? 'Ocultar' : 'Gerenciar'}</span>
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-zinc-200 p-2">
+          {fornecedores.map((fornecedor) => (
+            <FornecedorRow key={fornecedor.id} fornecedor={fornecedor} onSave={onSave} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FornecedorRow({ fornecedor, onSave }: { fornecedor: Fornecedor; onSave: (fornecedor: Fornecedor) => Promise<void> }) {
+  const [nome, setNome] = useState(fornecedor.nome);
+  const [documento, setDocumento] = useState(fornecedor.documento ?? '');
+  const [telefone, setTelefone] = useState(fornecedor.telefone ?? '');
+  const [ativo, setAtivo] = useState(fornecedor.ativo);
+  const [saving, setSaving] = useState(false);
+  const canSubmit = !isBlank(nome) && !saving;
+
+  useEffect(() => {
+    setNome(fornecedor.nome);
+    setDocumento(fornecedor.documento ?? '');
+    setTelefone(fornecedor.telefone ?? '');
+    setAtivo(fornecedor.ativo);
+  }, [fornecedor]);
+
+  return (
+    <form
+      className="grid gap-2 rounded border border-zinc-200 p-2 lg:grid-cols-[1fr_150px_150px_90px_auto]"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        setSaving(true);
+        try {
+          await onSave({ ...fornecedor, nome: nome.trim(), documento, telefone, ativo });
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
+      <input className="input" value={documento} onChange={(e) => setDocumento(e.target.value)} placeholder="Documento" />
+      <input className="input" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Telefone" />
+      <label className="flex items-center gap-2 text-sm text-zinc-600">
+        <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+        Ativo
+      </label>
+      <button className="btn-secondary" type="submit" disabled={!canSubmit}>{saving ? 'Salvando...' : 'Salvar'}</button>
+    </form>
+  );
+}
+
+function ParcelaRow({ parcela, onSave, onPay, onCancelInstallment, onCancelPayment }: {
+  parcela: Parcela;
+  onSave: (parcelaId: string, valor: number, dataVencimento: string) => Promise<void>;
+  onPay: (parcelaId: string) => Promise<void>;
+  onCancelInstallment: (parcelaId: string) => Promise<void>;
+  onCancelPayment: (parcelaId: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [valor, setValor] = useState(String(parcela.valor));
+  const [dataVencimento, setDataVencimento] = useState(parcela.dataVencimento);
+  const valorNumerico = parseDecimalInput(valor);
+  const canEdit = parcela.status === 1 || parcela.status === 3;
+  const canSubmit = canEdit && Number.isFinite(valorNumerico) && valorNumerico > 0 && !isBlank(dataVencimento);
+
+  function resetForm() {
+    setValor(String(parcela.valor));
+    setDataVencimento(parcela.dataVencimento);
+  }
+
+  useEffect(() => {
+    resetForm();
+  }, [parcela]);
+
+  return (
+    <tr>
+      <td className="border-b border-zinc-100 py-2">{parcela.numero}</td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <input className="input" type="date" value={dataVencimento} onChange={(event) => setDataVencimento(event.target.value)} />
+        ) : (
+          parcela.dataVencimento
+        )}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <input className="input" value={valor} onChange={(event) => setValor(event.target.value)} />
+        ) : (
+          money(parcela.valor)
+        )}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        <StatusBadge label={parcelaStatusLabel(parcela.status)} tone={parcelaStatusTone(parcela.status)} />
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn-primary"
+              type="button"
+              disabled={!canSubmit}
+              onClick={async () => {
+                await onSave(parcela.id, valorNumerico, dataVencimento);
+                setEditing(false);
+              }}
+            >
+              Salvar
+            </button>
+            <button className="btn-secondary" type="button" onClick={() => { resetForm(); setEditing(false); }}>Cancelar</button>
+          </div>
+        ) : parcela.status === 2 ? (
+          <button className="btn-secondary" type="button" onClick={() => onCancelPayment(parcela.id)}>Cancelar pagamento</button>
+        ) : canEdit ? (
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-primary" type="button" onClick={() => onPay(parcela.id)}>Pagar</button>
+            <button className="btn-secondary" type="button" onClick={() => setEditing(true)}>Editar</button>
+            <button className="btn-secondary" type="button" onClick={() => onCancelInstallment(parcela.id)}>Cancelar parcela</button>
+          </div>
+        ) : (
+          <span className="text-xs text-zinc-400">-</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function PermutaRow({ permuta, onSave, onStatusChange }: {
+  permuta: Permuta;
+  onSave: (permuta: Permuta) => Promise<void>;
+  onStatusChange: (permutaId: string, status: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [tipo, setTipo] = useState(String(permuta.tipo));
+  const [descricao, setDescricao] = useState(permuta.descricao);
+  const [valor, setValor] = useState(String(permuta.valorEstimado));
+  const [dataRecebimento, setDataRecebimento] = useState(permuta.dataRecebimento);
+  const [status, setStatus] = useState(String(permuta.status));
+  const valorNumerico = parseDecimalInput(valor);
+  const canSubmit = !isBlank(descricao) && Number.isFinite(valorNumerico) && valorNumerico > 0 && !isBlank(dataRecebimento);
+
+  function resetForm() {
+    setTipo(String(permuta.tipo));
+    setDescricao(permuta.descricao);
+    setValor(String(permuta.valorEstimado));
+    setDataRecebimento(permuta.dataRecebimento);
+    setStatus(String(permuta.status));
+  }
+
+  useEffect(() => {
+    resetForm();
+  }, [permuta]);
+
+  return (
+    <tr>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <div className="grid gap-2">
+            <select className="input" value={tipo} onChange={(event) => setTipo(event.target.value)}>
+              <option value="1">Terreno</option>
+              <option value="2">Imovel</option>
+              <option value="3">Veiculo</option>
+              <option value="99">Outro</option>
+            </select>
+            <input className="input" value={descricao} onChange={(event) => setDescricao(event.target.value)} />
+          </div>
+        ) : (
+          permuta.descricao
+        )}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <input className="input" type="date" value={dataRecebimento} onChange={(event) => setDataRecebimento(event.target.value)} />
+        ) : (
+          permuta.dataRecebimento
+        )}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <input className="input" value={valor} onChange={(event) => setValor(event.target.value)} />
+        ) : (
+          money(permuta.valorEstimado)
+        )}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <select className="input" value={status} onChange={(event) => setStatus(event.target.value)}>
+            <option value="1">Recebida</option>
+            <option value="2">Pendente</option>
+            <option value="3">Vendida</option>
+          </select>
+        ) : (
+          <select className="input" value={String(permuta.status)} onChange={(event) => onStatusChange(permuta.id, Number(event.target.value))} aria-label={`Status da permuta ${permuta.descricao}`}>
+            <option value="1">Recebida</option>
+            <option value="2">Pendente</option>
+            <option value="3">Vendida</option>
+          </select>
+        )}
+        {!editing && <StatusBadge label={permutaStatusLabel(permuta.status)} tone={permutaStatusTone(permuta.status)} />}
+      </td>
+      <td className="border-b border-zinc-100 py-2">
+        {editing ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="btn-primary"
+              type="button"
+              disabled={!canSubmit}
+              onClick={async () => {
+                await onSave({
+                  ...permuta,
+                  tipo: Number(tipo),
+                  descricao: descricao.trim(),
+                  valorEstimado: valorNumerico,
+                  dataRecebimento,
+                  status: Number(status)
+                });
+                setEditing(false);
+              }}
+            >
+              Salvar
+            </button>
+            <button className="btn-secondary" type="button" onClick={() => { resetForm(); setEditing(false); }}>Cancelar</button>
+          </div>
+        ) : (
+          <button className="btn-secondary" type="button" onClick={() => setEditing(true)}>Editar</button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 function RelatorioExtrato({ movimentos, dataInicial, dataFinal, totalEntradas, totalSaidas }: { movimentos: Movimento[]; dataInicial: string; dataFinal: string; totalEntradas: number; totalSaidas: number }) {
   const periodo = dataInicial || dataFinal ? `${dataInicial || 'inicio'} ate ${dataFinal || 'hoje'}` : 'Todos os lancamentos filtrados';
 
@@ -1258,10 +1618,16 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [parcelasIniciaisVencimento, setParcelasIniciaisVencimento] = useState(addMonths(today(), 1));
   const [permuta, setPermuta] = useState('');
   const [valorPermuta, setValorPermuta] = useState('');
+  const [statusPermuta, setStatusPermuta] = useState('1');
   const [parcelaValor, setParcelaValor] = useState('');
   const [parcelaVencimento, setParcelaVencimento] = useState(addMonths(today(), 1));
   const [parcelasGerar, setParcelasGerar] = useState('1');
   const [ordenacaoParcelas, setOrdenacaoParcelas] = useState('vencimentoAsc');
+  const [editandoVenda, setEditandoVenda] = useState(false);
+  const [vendaTipo, setVendaTipo] = useState('4');
+  const [vendaComprador, setVendaComprador] = useState('');
+  const [vendaValor, setVendaValor] = useState('');
+  const [vendaData, setVendaData] = useState(today());
   const [error, setError] = useState('');
   useEffect(() => {
     setLoadingVenda(true);
@@ -1273,6 +1639,8 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const temParcelamentoInicial = !isBlank(parcelasIniciaisValor) || !isBlank(parcelasIniciaisQtd);
   const parcelamentoInicialValido = !temParcelamentoInicial || (isPositive(parcelasIniciaisValor) && Number.isInteger(toNumber(parcelasIniciaisQtd)) && toNumber(parcelasIniciaisQtd) > 0 && !isBlank(parcelasIniciaisVencimento));
   const canCriarVenda = !isBlank(comprador) && isPositive(valor) && (isBlank(entrada) || (isNonNegative(entrada) && toNumber(entrada) <= toNumber(valor))) && parcelamentoInicialValido;
+  const vendaValorNumerico = parseDecimalInput(vendaValor);
+  const canSalvarVenda = venda !== null && !isBlank(vendaComprador) && Number.isFinite(vendaValorNumerico) && vendaValorNumerico > 0 && vendaValorNumerico >= venda.valorEntrada && !isBlank(vendaData);
   const canAddParcelas = isPositive(parcelaValor) && !isBlank(parcelaVencimento) && Number.isInteger(toNumber(parcelasGerar)) && toNumber(parcelasGerar) > 0;
   const canAddPermuta = !isBlank(permuta) && isPositive(valorPermuta);
   const parcelasOrdenadas = useMemo(() => {
@@ -1292,6 +1660,13 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     });
     return parcelas;
   }, [venda?.parcelas, ordenacaoParcelas]);
+  const totalParcelas = (venda?.parcelas ?? []).reduce((total, parcela) => total + parcela.valor, 0);
+  const totalParcelasPagas = (venda?.parcelas ?? []).filter((parcela) => parcela.status === 2).reduce((total, parcela) => total + parcela.valor, 0);
+  const totalParcelasAbertas = (venda?.parcelas ?? []).filter((parcela) => parcela.status === 1 || parcela.status === 3).reduce((total, parcela) => total + parcela.valor, 0);
+  const totalPermutasRealizadas = (venda?.permutas ?? []).filter((item) => item.status !== 2).reduce((total, item) => total + item.valorEstimado, 0);
+  const totalRecebidoOuRealizado = (venda?.valorEntrada ?? 0) + totalParcelasPagas + totalPermutasRealizadas;
+  const progressoVenda = venda ? Math.min(100, Math.max(0, (totalRecebidoOuRealizado / venda.valorTotalNegociado) * 100)) : 0;
+  const saldoVenda = venda ? Math.max(0, venda.valorTotalNegociado - totalRecebidoOuRealizado) : 0;
   async function criar() {
     if (!canCriarVenda) {
       setError('Informe comprador, valor total, entrada valida e parcelamento valido.');
@@ -1314,6 +1689,29 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     setParcelasIniciaisQtd('');
     void onDone();
   }
+  function iniciarEdicaoVenda() {
+    if (!venda) return;
+    setVendaTipo(String(venda.tipo));
+    setVendaComprador(venda.compradorNome);
+    setVendaValor(String(venda.valorTotalNegociado));
+    setVendaData(venda.dataVenda);
+    setEditandoVenda(true);
+  }
+  async function salvarVenda() {
+    if (!venda || !canSalvarVenda) return;
+    const atualizada = await api<Venda>(`/api/obras/${obraId}/venda`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        tipo: Number(vendaTipo),
+        valorTotalNegociado: vendaValorNumerico,
+        dataVenda: vendaData,
+        compradorNome: vendaComprador.trim()
+      })
+    });
+    setVenda(atualizada);
+    setEditandoVenda(false);
+    void onDone();
+  }
   async function addPermuta() {
     if (!venda) return;
     if (!canAddPermuta) {
@@ -1321,10 +1719,12 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       return;
     }
     setError('');
-    const novaPermuta = await api<Permuta>(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: toNumber(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: 1 }) });
+    const novaPermuta = await api<Permuta>(`/api/vendas/${venda.id}/permutas`, { method: 'POST', body: JSON.stringify({ tipo: 1, descricao: permuta, valorEstimado: toNumber(valorPermuta), documentoReferencia: '', dataRecebimento: today(), status: Number(statusPermuta) }) });
     setPermuta('');
     setValorPermuta('');
+    setStatusPermuta('1');
     setVenda((current) => current ? { ...current, permutas: [...current.permutas, novaPermuta] } : current);
+    void onDone();
   }
   async function addParcelas() {
     if (!venda) return;
@@ -1364,6 +1764,57 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       : current);
     void onDone();
   }
+  async function cancelarParcela(parcelaId: string) {
+    if (!confirmarAcao('Cancelar esta parcela? Ela deixara de contar como pendencia da venda.')) {
+      return;
+    }
+    const parcela = await api<Parcela>(`/api/parcelas/${parcelaId}/cancelar`, { method: 'POST' });
+    setVenda((current) => current
+      ? { ...current, parcelas: current.parcelas.map((item) => item.id === parcela.id ? parcela : item) }
+      : current);
+    void onDone();
+  }
+  async function salvarParcela(parcelaId: string, valorAtualizado: number, dataVencimento: string) {
+    const parcela = await api<Parcela>(`/api/parcelas/${parcelaId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ valor: valorAtualizado, dataVencimento })
+    });
+    setVenda((current) => current
+      ? { ...current, parcelas: current.parcelas.map((item) => item.id === parcela.id ? parcela : item) }
+      : current);
+    void onDone();
+  }
+  async function atualizarStatusPermuta(permutaId: string, status: number) {
+    const atualizada = await api<Permuta>(`/api/permutas/${permutaId}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+    setVenda((current) => current
+      ? { ...current, permutas: current.permutas.map((item) => item.id === atualizada.id ? atualizada : item) }
+      : current);
+    void onDone();
+  }
+  async function salvarPermuta(permutaAtualizada: Permuta) {
+    const atualizada = await api<Permuta>(`/api/permutas/${permutaAtualizada.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(permutaAtualizada)
+    });
+    setVenda((current) => current
+      ? { ...current, permutas: current.permutas.map((item) => item.id === atualizada.id ? atualizada : item) }
+      : current);
+    void onDone();
+  }
+  function exportarParcelasCsv() {
+    if (!venda) return;
+    downloadCsv(
+      `parcelas-${obraId}-${today()}.csv`,
+      ['Numero', 'Vencimento', 'Valor', 'Status', 'DataPagamento'],
+      parcelasOrdenadas.map((parcela) => [
+        parcela.numero,
+        parcela.dataVencimento,
+        parcela.valor.toFixed(2).replace('.', ','),
+        parcelaStatusLabel(parcela.status),
+        parcela.dataPagamento ?? ''
+      ])
+    );
+  }
   return (
     <Panel title="Venda, parcelas e permuta">
       {loadingVenda && !venda ? (
@@ -1388,20 +1839,81 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
             <Metric label="Entrada" value={money(venda.valorEntrada)} />
             <Metric label="Parcelas pendentes" value={String(venda.parcelas.filter((p) => p.status === 1 || p.status === 3).length)} />
           </div>
-          <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+          <div className="surface">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold text-zinc-900">Resumo da venda</h3>
+                  <StatusBadge label={vendaTipoLabel(venda.tipo)} />
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">Recebido, parcelas pagas e permutas realizadas sobre o valor negociado.</p>
+              </div>
+              <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[520px]">
+                <div>
+                  <div className="text-xs text-zinc-500">Realizado</div>
+                  <div className="font-semibold">{money(totalRecebidoOuRealizado)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">A receber</div>
+                  <div className="font-semibold">{money(saldoVenda)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Permutas</div>
+                  <div className="font-semibold">{money(totalPermutasRealizadas)}</div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="mb-1 flex justify-between text-xs text-zinc-500">
+                <span>Progresso financeiro</span>
+                <span>{progressoVenda.toFixed(0)}%</span>
+              </div>
+              <div className="progress-track">
+                <div className="progress-bar" style={{ width: `${progressoVenda}%` }} />
+              </div>
+            </div>
+          </div>
+          {editandoVenda ? (
+            <div className="surface grid gap-2 lg:grid-cols-[150px_1fr_150px_160px_auto_auto]">
+              <select className="input" value={vendaTipo} onChange={(e) => setVendaTipo(e.target.value)}>
+                <option value="1">Dinheiro</option>
+                <option value="2">Parcelada</option>
+                <option value="3">Permuta</option>
+                <option value="4">Mista</option>
+              </select>
+              <input className="input" value={vendaComprador} onChange={(e) => setVendaComprador(e.target.value)} placeholder="Comprador" />
+              <input className="input" value={vendaValor} onChange={(e) => setVendaValor(e.target.value)} placeholder="Valor total" />
+              <input className="input" type="date" value={vendaData} onChange={(e) => setVendaData(e.target.value)} />
+              <button className="btn-primary" type="button" disabled={!canSalvarVenda} onClick={salvarVenda}>Salvar</button>
+              <button className="btn-secondary" type="button" onClick={() => setEditandoVenda(false)}>Cancelar</button>
+            </div>
+          ) : (
+            <div className="surface flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-zinc-600">Venda em {venda.dataVenda}</div>
+              <button className="btn-secondary" type="button" onClick={iniciarEdicaoVenda}>Editar venda</button>
+            </div>
+          )}
+          <div className="surface grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
             <input className="input" type="number" min="0.01" step="0.01" value={parcelaValor} onChange={(e) => setParcelaValor(e.target.value)} placeholder="Valor da parcela" />
             <input className="input" type="date" value={parcelaVencimento} onChange={(e) => setParcelaVencimento(e.target.value)} />
             <input className="input" type="number" min="1" step="1" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
             <button className="btn-secondary" disabled={!canAddParcelas} onClick={addParcelas}>Gerar</button>
           </div>
-          <div className="flex flex-col gap-2 rounded border border-zinc-200 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium text-zinc-600">{parcelasOrdenadas.length} parcela(s)</span>
-            <select className="input sm:w-64" value={ordenacaoParcelas} onChange={(e) => setOrdenacaoParcelas(e.target.value)} aria-label="Ordenar parcelas">
-              <option value="vencimentoAsc">Vencimento mais proximo</option>
-              <option value="vencimentoDesc">Vencimento mais distante</option>
-              <option value="status">Status</option>
-              <option value="numero">Numero da parcela</option>
-            </select>
+          <div className="surface flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-zinc-600">
+              <span className="font-medium text-zinc-900">{parcelasOrdenadas.length} parcela(s)</span>
+              <span className="ml-2">Aberto: {money(totalParcelasAbertas)}</span>
+              <span className="ml-2">Total: {money(totalParcelas)}</span>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <select className="input sm:w-64" value={ordenacaoParcelas} onChange={(e) => setOrdenacaoParcelas(e.target.value)} aria-label="Ordenar parcelas">
+                <option value="vencimentoAsc">Vencimento mais proximo</option>
+                <option value="vencimentoDesc">Vencimento mais distante</option>
+                <option value="status">Status</option>
+                <option value="numero">Numero da parcela</option>
+              </select>
+              <button className="btn-secondary" type="button" disabled={parcelasOrdenadas.length === 0} onClick={exportarParcelasCsv}>Exportar parcelas</button>
+            </div>
           </div>
           <div className="overflow-auto">
             <table className="w-full text-left text-sm">
@@ -1412,31 +1924,45 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
               </thead>
               <tbody>
                 {parcelasOrdenadas.map((parcela) => (
-                  <tr key={parcela.id}>
-                    <td className="border-b border-zinc-100 py-2">{parcela.numero}</td>
-                    <td className="border-b border-zinc-100 py-2">{parcela.dataVencimento}</td>
-                    <td className="border-b border-zinc-100 py-2">{money(parcela.valor)}</td>
-                    <td className="border-b border-zinc-100 py-2">{parcelaStatusLabel(parcela.status)}</td>
-                    <td className="border-b border-zinc-100 py-2">
-                      {parcela.status === 2 ? (
-                        <button className="btn-secondary" onClick={() => cancelarPagamento(parcela.id)}>Cancelar</button>
-                      ) : (
-                        <button className="btn-primary" onClick={() => pagarParcela(parcela.id)}>Pagar</button>
-                      )}
-                    </td>
-                  </tr>
+                  <ParcelaRow
+                    key={parcela.id}
+                    parcela={parcela}
+                    onSave={salvarParcela}
+                    onPay={pagarParcela}
+                    onCancelInstallment={cancelarParcela}
+                    onCancelPayment={cancelarPagamento}
+                  />
                 ))}
                 {parcelasOrdenadas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={5}>Nenhuma parcela cadastrada.</td></tr>}
               </tbody>
             </table>
           </div>
-          <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-[1fr_160px_auto]">
+          <div className="surface grid gap-2 sm:grid-cols-[1fr_160px_150px_auto]">
             <input className="input" value={permuta} onChange={(e) => setPermuta(e.target.value)} placeholder="Descricao da permuta" />
             <input className="input" type="number" min="0.01" step="0.01" value={valorPermuta} onChange={(e) => setValorPermuta(e.target.value)} placeholder="Valor" />
+            <select className="input" value={statusPermuta} onChange={(e) => setStatusPermuta(e.target.value)}>
+              <option value="1">Recebida</option>
+              <option value="2">Pendente</option>
+              <option value="3">Vendida</option>
+            </select>
             <button className="btn-secondary" disabled={!canAddPermuta} onClick={addPermuta}>Adicionar</button>
           </div>
           {error && <ErrorText message={error} />}
-          <Table headers={['Permuta', 'Valor']} rows={venda.permutas.map((p) => [p.descricao, money(p.valorEstimado)])} />
+          <div className="overflow-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr>
+                  {['Permuta', 'Data', 'Valor', 'Status', 'Acao'].map((header) => <th key={header} className="border-b border-zinc-200 py-2 font-medium text-zinc-500">{header}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {venda.permutas.map((item) => (
+                  <PermutaRow key={item.id} permuta={item} onSave={salvarPermuta} onStatusChange={atualizarStatusPermuta} />
+                ))}
+                {venda.permutas.length === 0 && <tr><td className="py-3 text-zinc-500" colSpan={5}>Nenhuma permuta cadastrada.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </Panel>

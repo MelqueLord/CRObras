@@ -25,6 +25,14 @@ public sealed class RecentController(CRObrasService service) : ControllerBase
         return NoContent();
     }
 
+    [HttpDelete("{obraId:guid}")]
+    public async Task<IActionResult> Remover(Guid obraId, CancellationToken ct)
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        await service.RemoverObraRecenteAsync(userId, obraId, ct);
+        return NoContent();
+    }
+
     [HttpDelete]
     public async Task<IActionResult> Limpar(CancellationToken ct)
     {

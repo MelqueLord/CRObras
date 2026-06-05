@@ -14,6 +14,22 @@
   .btn-secondary {
     @apply rounded border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50;
   }
+
+  .surface {
+    @apply rounded border border-zinc-200 bg-zinc-50/70 p-3;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  .progress-track {
+    @apply h-2 overflow-hidden rounded-full bg-zinc-200;
+  }
+
+  .progress-bar {
+    @apply h-full rounded-full bg-zinc-900 transition-all;
+  }
 }
 
 @media print {

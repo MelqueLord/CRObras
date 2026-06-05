@@ -329,9 +329,7 @@ public sealed class CRObrasService(IAppDbContext db)
     {
         var obra = await BuscarObraAsync(obraId, ct);
         obra.GarantirAberta();
-        ValidarTexto(request.Nome, "Nome do material");
-        if (request.Quantidade <= 0) throw new ServiceException("Quantidade deve ser maior que zero.");
-        if (request.PrecoUnitario < 0) throw new ServiceException("Preco unitario invalido.");
+        ValidarMaterial(request);
 
         var material = new CRObras.Domain.Entities.Material
         {
@@ -341,6 +339,23 @@ public sealed class CRObrasService(IAppDbContext db)
             PrecoUnitario = request.PrecoUnitario
         };
         db.Materiais.Add(material);
+        await db.SaveChangesAsync(ct);
+        return new CRObras.Application.Obras.MaterialResponse(material.Id, material.ObraId, material.Nome, material.Quantidade, material.PrecoUnitario);
+    }
+
+    public async Task<CRObras.Application.Obras.MaterialResponse> AtualizarMaterialAsync(Guid obraId, Guid materialId, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct)
+    {
+        var obra = await BuscarObraAsync(obraId, ct);
+        obra.GarantirAberta();
+        ValidarMaterial(request);
+
+        var material = await db.Materiais.FirstOrDefaultAsync(m => m.Id == materialId && m.ObraId == obraId, ct)
+            ?? throw new ServiceException("Material nao encontrado.");
+
+        material.Nome = request.Nome.Trim();
+        material.Quantidade = request.Quantidade;
+        material.PrecoUnitario = request.PrecoUnitario;
+
         await db.SaveChangesAsync(ct);
         return new CRObras.Application.Obras.MaterialResponse(material.Id, material.ObraId, material.Nome, material.Quantidade, material.PrecoUnitario);
     }
@@ -367,14 +382,19 @@ public sealed class CRObrasService(IAppDbContext db)
 
     public async Task RegistrarObraRecenteAsync(Guid userId, Guid obraId, CancellationToken ct)
     {
-        // remove existing entries for this obra by user
+        await GarantirObraExisteAsync(obraId, ct);
         var existentes = await db.RecentObras.Where(r => r.UserId == userId && r.ObraId == obraId).ToListAsync(ct);
         if (existentes.Any()) db.RecentObras.RemoveRange(existentes);
         db.RecentObras.Add(new CRObras.Domain.Entities.RecentObra { UserId = userId, ObraId = obraId, CriadoEm = DateTimeOffset.UtcNow });
-        // trim to last 5
         await db.SaveChangesAsync(ct);
         var extras = await db.RecentObras.Where(r => r.UserId == userId).OrderByDescending(r => r.CriadoEm).Skip(5).ToListAsync(ct);
         if (extras.Any()) { db.RecentObras.RemoveRange(extras); await db.SaveChangesAsync(ct); }
+    }
+
+    public async Task RemoverObraRecenteAsync(Guid userId, Guid obraId, CancellationToken ct)
+    {
+        var items = await db.RecentObras.Where(r => r.UserId == userId && r.ObraId == obraId).ToListAsync(ct);
+        if (items.Any()) { db.RecentObras.RemoveRange(items); await db.SaveChangesAsync(ct); }
     }
 
     public async Task LimparObrasRecentesAsync(Guid userId, CancellationToken ct)
@@ -483,6 +503,31 @@ public sealed class CRObrasService(IAppDbContext db)
         return ToVendaResponse(venda);
     }
 
+    public async Task<VendaResponse> AtualizarVendaAsync(Guid obraId, AtualizarVendaRequest request, CancellationToken ct)
+    {
+        var venda = await db.Vendas
+            .Include(v => v.Obra)
+            .Include(v => v.Parcelas)
+            .Include(v => v.Permutas)
+            .FirstOrDefaultAsync(v => v.ObraId == obraId && v.Status != StatusVenda.Cancelada, ct)
+            ?? throw new ServiceException("Venda nao encontrada.");
+        venda.Obra.GarantirAberta();
+        ValidarTexto(request.CompradorNome, "Nome do comprador");
+        ValidarValor(request.ValorTotalNegociado);
+        if (request.ValorTotalNegociado < venda.ValorEntrada)
+        {
+            throw new ServiceException("Valor total nao pode ser menor que a entrada registrada.");
+        }
+
+        venda.Tipo = request.Tipo;
+        venda.ValorTotalNegociado = request.ValorTotalNegociado;
+        venda.DataVenda = request.DataVenda;
+        venda.CompradorNome = request.CompradorNome.Trim();
+
+        await db.SaveChangesAsync(ct);
+        return ToVendaResponse(venda);
+    }
+
     public async Task<IReadOnlyCollection<ParcelaResponse>> AdicionarParcelasAsync(Guid vendaId, IReadOnlyCollection<ParcelaRequest> parcelas, CancellationToken ct)
     {
         var venda = await db.Vendas.Include(v => v.Obra).Include(v => v.Parcelas).FirstOrDefaultAsync(v => v.Id == vendaId, ct)
@@ -504,6 +549,28 @@ public sealed class CRObrasService(IAppDbContext db)
         return venda.Parcelas.OrderBy(p => p.Numero).Select(ToParcelaResponse).ToList();
     }
 
+    public async Task<ParcelaResponse> AtualizarParcelaAsync(Guid parcelaId, AtualizarParcelaRequest request, CancellationToken ct)
+    {
+        var parcela = await db.ParcelasReceber.Include(p => p.Obra).FirstOrDefaultAsync(p => p.Id == parcelaId, ct)
+            ?? throw new ServiceException("Parcela nao encontrada.");
+        parcela.Obra.GarantirAberta();
+        ValidarValor(request.Valor);
+        if (parcela.Status == StatusParcela.Paga)
+        {
+            throw new ServiceException("Parcela paga nao pode ser editada.");
+        }
+        if (parcela.Status == StatusParcela.Cancelada)
+        {
+            throw new ServiceException("Parcela cancelada nao pode ser editada.");
+        }
+
+        parcela.Valor = request.Valor;
+        parcela.DataVencimento = request.DataVencimento;
+
+        await db.SaveChangesAsync(ct);
+        return ToParcelaResponse(parcela);
+    }
+
     public async Task<ParcelaResponse> PagarParcelaAsync(Guid parcelaId, PagarParcelaRequest request, CancellationToken ct)
     {
         var parcela = await db.ParcelasReceber.Include(p => p.Obra).FirstOrDefaultAsync(p => p.Id == parcelaId, ct)
@@ -512,6 +579,10 @@ public sealed class CRObrasService(IAppDbContext db)
         if (parcela.Status == StatusParcela.Paga)
         {
             throw new ServiceException("Parcela ja paga.");
+        }
+        if (parcela.Status == StatusParcela.Cancelada)
+        {
+            throw new ServiceException("Parcela cancelada nao pode ser paga.");
         }
 
         var mov = new MovimentacaoFinanceira
@@ -529,6 +600,28 @@ public sealed class CRObrasService(IAppDbContext db)
         parcela.DataPagamento = request.DataPagamento;
         parcela.MovimentacaoFinanceira = mov;
         parcela.Obra.SaldoAtual += parcela.Valor;
+
+        await AtualizarStatusVendaAsync(parcela.VendaId, ct);
+        await db.SaveChangesAsync(ct);
+        return ToParcelaResponse(parcela);
+    }
+
+    public async Task<ParcelaResponse> CancelarParcelaAsync(Guid parcelaId, CancellationToken ct)
+    {
+        var parcela = await db.ParcelasReceber.Include(p => p.Obra).FirstOrDefaultAsync(p => p.Id == parcelaId, ct)
+            ?? throw new ServiceException("Parcela nao encontrada.");
+        parcela.Obra.GarantirAberta();
+        if (parcela.Status == StatusParcela.Paga)
+        {
+            throw new ServiceException("Cancele o pagamento antes de cancelar a parcela.");
+        }
+        if (parcela.Status == StatusParcela.Cancelada)
+        {
+            return ToParcelaResponse(parcela);
+        }
+
+        parcela.Status = StatusParcela.Cancelada;
+        parcela.DataPagamento = null;
 
         await AtualizarStatusVendaAsync(parcela.VendaId, ct);
         await db.SaveChangesAsync(ct);
@@ -577,8 +670,47 @@ public sealed class CRObrasService(IAppDbContext db)
         };
         db.AtivosPermuta.Add(permuta);
 
+        await db.SaveChangesAsync(ct);
         await AtualizarStatusVendaAsync(venda.Id, ct);
         await db.SaveChangesAsync(ct);
+        return ToPermutaResponse(permuta);
+    }
+
+    public async Task<PermutaResponse> AtualizarStatusPermutaAsync(Guid permutaId, AtualizarStatusPermutaRequest request, CancellationToken ct)
+    {
+        var permuta = await db.AtivosPermuta
+            .Include(p => p.Obra)
+            .FirstOrDefaultAsync(p => p.Id == permutaId, ct)
+            ?? throw new ServiceException("Permuta nao encontrada.");
+        permuta.Obra.GarantirAberta();
+
+        permuta.Status = request.Status;
+        await AtualizarStatusVendaAsync(permuta.VendaId, ct);
+        await db.SaveChangesAsync(ct);
+
+        return ToPermutaResponse(permuta);
+    }
+
+    public async Task<PermutaResponse> AtualizarPermutaAsync(Guid permutaId, AtualizarPermutaRequest request, CancellationToken ct)
+    {
+        var permuta = await db.AtivosPermuta
+            .Include(p => p.Obra)
+            .FirstOrDefaultAsync(p => p.Id == permutaId, ct)
+            ?? throw new ServiceException("Permuta nao encontrada.");
+        permuta.Obra.GarantirAberta();
+        ValidarTexto(request.Descricao, "Descricao da permuta");
+        ValidarValor(request.ValorEstimado);
+
+        permuta.Tipo = request.Tipo;
+        permuta.Descricao = request.Descricao.Trim();
+        permuta.ValorEstimado = request.ValorEstimado;
+        permuta.DocumentoReferencia = request.DocumentoReferencia;
+        permuta.DataRecebimento = request.DataRecebimento;
+        permuta.Status = request.Status;
+
+        await AtualizarStatusVendaAsync(permuta.VendaId, ct);
+        await db.SaveChangesAsync(ct);
+
         return ToPermutaResponse(permuta);
     }
 
@@ -802,6 +934,19 @@ public sealed class CRObrasService(IAppDbContext db)
         if (valor <= 0)
         {
             throw new ServiceException("Valor deve ser maior que zero.");
+        }
+    }
+
+    private static void ValidarMaterial(CRObras.Application.Obras.MaterialRequest request)
+    {
+        ValidarTexto(request.Nome, "Nome do material");
+        if (request.Quantidade <= 0)
+        {
+            throw new ServiceException("Quantidade deve ser maior que zero.");
+        }
+        if (request.PrecoUnitario < 0)
+        {
+            throw new ServiceException("Preco unitario invalido.");
         }
     }
 

@@ -56,6 +56,9 @@ public sealed class ObrasController(CRObrasService service) : ControllerBase
     [HttpGet("{id:guid}/venda")]
     public async Task<VendaResponse> ObterVenda(Guid id, CancellationToken ct) => await service.ObterVendaPorObraAsync(id, ct);
 
+    [HttpPut("{id:guid}/venda")]
+    public async Task<VendaResponse> AtualizarVenda(Guid id, AtualizarVendaRequest request, CancellationToken ct) => await service.AtualizarVendaAsync(id, request, ct);
+
     [HttpGet("{id:guid}/pre-fechamento")]
     public async Task<PreFechamentoResponse> PreFechamento(Guid id, CancellationToken ct) => await service.ObterPreFechamentoAsync(id, ct);
 
@@ -67,6 +70,9 @@ public sealed class ObrasController(CRObrasService service) : ControllerBase
 
     [HttpPost("{id:guid}/materiais")]
     public async Task<CRObras.Application.Obras.MaterialResponse> CriarMaterial(Guid id, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct) => await service.CriarMaterialAsync(id, request, ct);
+
+    [HttpPut("{id:guid}/materiais/{materialId:guid}")]
+    public async Task<CRObras.Application.Obras.MaterialResponse> AtualizarMaterial(Guid id, Guid materialId, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct) => await service.AtualizarMaterialAsync(id, materialId, request, ct);
 
     [HttpDelete("{id:guid}/materiais/{materialId:guid}")]
     public async Task<IActionResult> RemoverMaterial(Guid id, Guid materialId, CancellationToken ct) { await service.RemoverMaterialAsync(id, materialId, ct); return NoContent(); }

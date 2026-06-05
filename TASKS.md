@@ -58,6 +58,15 @@
 7. Adicionado gerenciamento de materiais por obra (quantidade, preco unitario, total, exportacao CSV) persistido em localStorage.
 8. Persistencia de atalhos de obras recentes no backend (substitui localStorage).
 9. Criadas migrations para `materiais` e `recent_obras` (arquivo de migration adicionado, executar `dotnet ef database update` para aplicar).
+10. Adicionada edicao de materiais por obra via API e UI.
+11. Adicionado gerenciamento de fornecedores cadastrados pela UI financeira.
+12. Adicionada remocao individual de atalhos de obras recentes.
+13. Adicionado gerenciamento de status de permutas pela UI e API.
+14. Adicionado cancelamento de parcelas pendentes pela UI e API.
+15. Adicionada edicao de valor e vencimento de parcelas abertas pela UI e API.
+16. Adicionada edicao completa de permutas pela UI e API.
+17. Adicionada edicao de dados basicos da venda pela UI e API.
+18. Adicionado resumo visual da venda com progresso financeiro e exportacao CSV de parcelas.
 
 ## Proximas Tasks Recomendadas
 
