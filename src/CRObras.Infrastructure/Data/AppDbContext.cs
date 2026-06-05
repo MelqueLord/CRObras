@@ -22,6 +22,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<AtivoPermuta> AtivosPermuta => Set<AtivoPermuta>();
     public DbSet<EncerramentoObra> EncerramentosObra => Set<EncerramentoObra>();
     public DbSet<DistribuicaoResultado> DistribuicoesResultado => Set<DistribuicaoResultado>();
+    public DbSet<CRObras.Domain.Entities.Material> Materiais => Set<CRObras.Domain.Entities.Material>();
+    public DbSet<CRObras.Domain.Entities.RecentObra> RecentObras => Set<CRObras.Domain.Entities.RecentObra>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -171,6 +173,27 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(e => e.ValorAReceberOuPagar).HasPrecision(18, 2);
             entity.HasOne(e => e.EncerramentoObra).WithMany(e => e.Distribuicoes).HasForeignKey(e => e.EncerramentoObraId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Socio).WithMany().HasForeignKey(e => e.SocioId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<CRObras.Domain.Entities.Material>(entity =>
+        {
+            entity.ToTable("materiais");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Nome).HasMaxLength(300).IsRequired();
+            entity.Property(e => e.Quantidade).HasPrecision(18, 4);
+            entity.Property(e => e.PrecoUnitario).HasPrecision(18, 2);
+            entity.HasIndex(e => e.ObraId);
+            entity.HasOne<Obra>().WithMany().HasForeignKey("ObraId").OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<CRObras.Domain.Entities.RecentObra>(entity =>
+        {
+            entity.ToTable("recent_obras");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.UserId).IsRequired();
+            entity.Property(e => e.ObraId).IsRequired();
+            entity.Property(e => e.CriadoEm).IsRequired();
+            entity.HasIndex(e => new { e.UserId, e.CriadoEm });
         });
     }
 }

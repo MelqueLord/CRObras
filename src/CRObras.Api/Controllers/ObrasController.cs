@@ -61,4 +61,13 @@ public sealed class ObrasController(CRObrasService service) : ControllerBase
 
     [HttpPost("{id:guid}/encerrar")]
     public async Task<EncerramentoResponse> Encerrar(Guid id, EncerrarObraRequest request, CancellationToken ct) => await service.EncerrarObraAsync(id, request, ct);
+
+    [HttpGet("{id:guid}/materiais")]
+    public async Task<IReadOnlyCollection<CRObras.Application.Obras.MaterialResponse>> ListarMateriais(Guid id, CancellationToken ct) => await service.ListarMateriaisAsync(id, ct);
+
+    [HttpPost("{id:guid}/materiais")]
+    public async Task<CRObras.Application.Obras.MaterialResponse> CriarMaterial(Guid id, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct) => await service.CriarMaterialAsync(id, request, ct);
+
+    [HttpDelete("{id:guid}/materiais/{materialId:guid}")]
+    public async Task<IActionResult> RemoverMaterial(Guid id, Guid materialId, CancellationToken ct) { await service.RemoverMaterialAsync(id, materialId, ct); return NoContent(); }
 }

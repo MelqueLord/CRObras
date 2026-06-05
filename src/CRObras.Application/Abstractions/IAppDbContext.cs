@@ -17,5 +17,7 @@ public interface IAppDbContext
     DbSet<AtivoPermuta> AtivosPermuta { get; }
     DbSet<EncerramentoObra> EncerramentosObra { get; }
     DbSet<DistribuicaoResultado> DistribuicoesResultado { get; }
+    DbSet<CRObras.Domain.Entities.Material> Materiais { get; }
+    DbSet<CRObras.Domain.Entities.RecentObra> RecentObras { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

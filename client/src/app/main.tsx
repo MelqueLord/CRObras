@@ -12,6 +12,7 @@ type Fornecedor = { id: string; nome: string; documento?: string; telefone?: str
 type Movimento = { id: string; tipo: number; categoria: string; valor: number; dataMovimentacao: string; descricao: string; status: number; parcelaReceberId?: string; fornecedor?: string };
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
 type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
+type Material = { id: string; nome: string; quantidade: number; precoUnitario: number };
 type Venda = { id: string; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; status: number; parcelas: Parcela[]; permutas: Permuta[] };
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
@@ -329,8 +330,10 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [loadingParcelas, setLoadingParcelas] = useState(true);
   const [selectedObraId, setSelectedObraId] = useState('');
+  const [recentObras, setRecentObras] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('resumo');
   const [buscaObra, setBuscaObra] = useState('');
+  const buscaObraRef = React.useRef<HTMLInputElement | null>(null);
   const [filtroStatusObra, setFiltroStatusObra] = useState('todos');
   const [ordenacaoObras, setOrdenacaoObras] = useState('nome');
   const selectedObra = useMemo(() => obras.find((obra) => obra.id === selectedObraId), [obras, selectedObraId]);
@@ -400,6 +403,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   function addObra(obra: Obra) {
     setObras((current) => current.some((item) => item.id === obra.id) ? current : [...current, obra]);
     setSelectedObraId(obra.id);
+    recordRecentObra(obra.id);
     setActiveTab('resumo');
     setDashboard((current) => current
       ? { ...current, obrasAtivas: current.obrasAtivas + 1, saldoTotal: current.saldoTotal + obra.saldoAtual }
@@ -408,9 +412,60 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === '/' && document.activeElement && (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA')) {
+        e.preventDefault();
+        buscaObraRef.current?.focus();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (buscaObraRef.current === document.activeElement) {
+          // clear and blur when search input is focused
+          setBuscaObra('');
+          buscaObraRef.current?.blur();
+        } else {
+          // clear search when pressing Escape elsewhere
+          setBuscaObra('');
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const list = await api<string[]>('/api/me/recent-obras', { silent: true });
+        if (mounted) setRecentObras(Array.isArray(list) ? list : []);
+      } catch {
+        if (mounted) setRecentObras([]);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  function recordRecentObra(obraId: string) {
+    void api(`/api/me/recent-obras/${obraId}`, { method: 'POST' }).then(() => {
+      setRecentObras((current) => {
+        const next = [obraId, ...current.filter((id) => id !== obraId)].slice(0, 5);
+        return next;
+      });
+    }).catch(() => {
+      // ignore
+    });
+  }
+
+  function clearRecent() {
+    void api('/api/me/recent-obras', { method: 'DELETE' }).then(() => setRecentObras([])).catch(() => setRecentObras([]));
+  }
+
   const tabs = [
     { id: 'resumo', label: 'Resumo' },
     { id: 'financeiro', label: 'Financeiro' },
+    { id: 'materiais', label: 'Materiais' },
     { id: 'venda', label: 'Venda' },
     { id: 'encerramento', label: 'Encerramento' },
     { id: 'socios', label: 'Socios' }
@@ -449,9 +504,30 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
             {!loadingParcelas && parcelasPendentes.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma parcela pendente.</p>}
           </div>
         </Panel>
+        <Panel title="Atalhos">
+          <div className="space-y-2">
+            {recentObras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum atalho ainda.</p>}
+            {recentObras.map((id) => {
+              const obra = obras.find((o) => o.id === id);
+              if (!obra) return null;
+              return (
+                <div key={id} className="flex items-center gap-2">
+                  <button className="flex-1 text-left rounded border px-3 py-2 text-sm" onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
+                    <div className="font-medium">{obra.nome}</div>
+                    <div className="text-xs text-zinc-500">{money(obra.saldoAtual)}</div>
+                  </button>
+                  <div className="flex gap-1">
+                    <button title="Abrir financeiro" className="btn-secondary text-xs" onClick={() => { setSelectedObraId(obra.id); setActiveTab('financeiro'); recordRecentObra(obra.id); }}>Fin</button>
+                  </div>
+                </div>
+              );
+            })}
+            {recentObras.length > 0 && <div className="mt-2 text-right"><button className="text-xs text-zinc-600" onClick={clearRecent}>Limpar</button></div>}
+          </div>
+        </Panel>
         <Panel title="Obras">
           <ObraForm onCreated={addObra} />
-          <input className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
+          <input ref={buscaObraRef} className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
           <div className="mt-3 grid grid-cols-2 gap-1">
             {filtrosStatusObra.map((filtro) => (
               <button
@@ -474,7 +550,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
           <div className="mt-3 space-y-2">
             {loadingObras && obras.length === 0 && <LoadingStrip />}
             {obrasVisiveis.map((obra) => (
-              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); }}>
+              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
                 <span className="flex items-start justify-between gap-2">
                   <span className="font-medium">{obra.nome}</span>
                   <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${obraStatusBadgeClass(obra.status, obra.id === selectedObraId)}`}>
@@ -515,6 +591,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
               </Panel>
             )}
             {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={load} />}
+            {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={load} />}
             {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={load} />}
             {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={load} />}
             {activeTab === 'socios' && <SocioForm onDone={load} />}
@@ -812,6 +889,78 @@ function SocioEditor({ socio, onSave, onRemove }: { socio: Socio; onSave: (socio
       <button className="btn-secondary" type="button" disabled={!canSubmit} onClick={() => onSave({ ...socio, nome, email, telefone, ativo })}>Salvar</button>
       <button className="btn-secondary" type="button" disabled={!socio.ativo} onClick={() => onRemove(socio)}>Remover</button>
     </div>
+  );
+}
+
+function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
+  const [materiais, setMateriais] = useState<Material[]>([]);
+  const [nome, setNome] = useState('');
+  const [quantidade, setQuantidade] = useState('1');
+  const [preco, setPreco] = useState('0,00');
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const data = await api<Material[]>(`/api/obras/${obraId}/materiais`, { silent: true });
+      setMateriais(data);
+    } catch {
+      setMateriais([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [obraId]);
+
+  async function adicionar(event?: React.FormEvent) {
+    if (event) event.preventDefault();
+    if (!nome.trim()) return;
+    const q = Number(String(quantidade).replace(',', '.')) || 0;
+    const p = Number(String(preco).replace('.', '').replace(',', '.')) || 0;
+    const body = { nome: nome.trim(), quantidade: q, precoUnitario: p };
+    const created = await api<Material>(`/api/obras/${obraId}/materiais`, { method: 'POST', body: JSON.stringify(body) });
+    setMateriais((current) => [created, ...current]);
+    setNome(''); setQuantidade('1'); setPreco('0,00');
+    onDone();
+  }
+
+  async function remover(id: string) {
+    if (!confirmarAcao('Remover este material?')) return;
+    await api(`/api/obras/${obraId}/materiais/${id}`, { method: 'DELETE' });
+    setMateriais((current) => current.filter((m) => m.id !== id));
+    onDone();
+  }
+
+  const total = materiais.reduce((s, m) => s + m.quantidade * m.precoUnitario, 0);
+
+  return (
+    <Panel title="Materiais">
+      <form onSubmit={adicionar} className="grid gap-2 sm:grid-cols-[1fr_120px_120px_auto]">
+        <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do material" />
+        <input className="input" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Quantidade" />
+        <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="Preco unitario (ex: 12,50)" />
+        <button className="btn-primary" disabled={!nome.trim()}>Adicionar</button>
+      </form>
+      <div className="mt-3 space-y-2">
+        {materiais.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum material registrado para esta obra.</p>}
+        {materiais.map((m) => (
+          <div key={m.id} className="flex items-center justify-between rounded border px-3 py-2">
+            <div>
+              <div className="font-medium">{m.nome}</div>
+              <div className="text-xs text-zinc-500">{m.quantidade} × {money(m.precoUnitario)} = {money(m.quantidade * m.precoUnitario)}</div>
+            </div>
+            <div>
+              <button className="btn-secondary" onClick={() => remover(m.id)}>Remover</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 text-right font-medium">Total gasto com materiais: {money(total)}</div>
+      <div className="mt-2 text-right">
+        <button className="btn-secondary" onClick={() => { downloadCsv(`materiais-${obraId}-${today()}.csv`, ['Nome','Quantidade','PrecoUnitario','Total'], materiais.map(m => [m.nome, m.quantidade, m.precoUnitario.toFixed(2).replace('.',','), (m.quantidade*m.precoUnitario).toFixed(2).replace('.',',')])); }}>Exportar CSV</button>
+      </div>
+    </Panel>
   );
 }
 

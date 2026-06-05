@@ -315,6 +315,74 @@ public sealed class CRObrasService(IAppDbContext db)
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyCollection<CRObras.Application.Obras.MaterialResponse>> ListarMateriaisAsync(Guid obraId, CancellationToken ct)
+    {
+        await GarantirObraExisteAsync(obraId, ct);
+        return await db.Materiais.AsNoTracking()
+            .Where(m => m.ObraId == obraId)
+            .OrderByDescending(m => m.Id)
+            .Select(m => new CRObras.Application.Obras.MaterialResponse(m.Id, m.ObraId, m.Nome, m.Quantidade, m.PrecoUnitario))
+            .ToListAsync(ct);
+    }
+
+    public async Task<CRObras.Application.Obras.MaterialResponse> CriarMaterialAsync(Guid obraId, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct)
+    {
+        var obra = await BuscarObraAsync(obraId, ct);
+        obra.GarantirAberta();
+        ValidarTexto(request.Nome, "Nome do material");
+        if (request.Quantidade <= 0) throw new ServiceException("Quantidade deve ser maior que zero.");
+        if (request.PrecoUnitario < 0) throw new ServiceException("Preco unitario invalido.");
+
+        var material = new CRObras.Domain.Entities.Material
+        {
+            ObraId = obraId,
+            Nome = request.Nome.Trim(),
+            Quantidade = request.Quantidade,
+            PrecoUnitario = request.PrecoUnitario
+        };
+        db.Materiais.Add(material);
+        await db.SaveChangesAsync(ct);
+        return new CRObras.Application.Obras.MaterialResponse(material.Id, material.ObraId, material.Nome, material.Quantidade, material.PrecoUnitario);
+    }
+
+    public async Task RemoverMaterialAsync(Guid obraId, Guid materialId, CancellationToken ct)
+    {
+        var obra = await BuscarObraAsync(obraId, ct);
+        obra.GarantirAberta();
+        var material = await db.Materiais.FirstOrDefaultAsync(m => m.Id == materialId && m.ObraId == obraId, ct)
+            ?? throw new ServiceException("Material nao encontrado.");
+        db.Materiais.Remove(material);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyCollection<Guid>> ListarObrasRecentesAsync(Guid userId, CancellationToken ct)
+    {
+        return await db.RecentObras.AsNoTracking()
+            .Where(r => r.UserId == userId)
+            .OrderByDescending(r => r.CriadoEm)
+            .Select(r => r.ObraId)
+            .Take(5)
+            .ToListAsync(ct);
+    }
+
+    public async Task RegistrarObraRecenteAsync(Guid userId, Guid obraId, CancellationToken ct)
+    {
+        // remove existing entries for this obra by user
+        var existentes = await db.RecentObras.Where(r => r.UserId == userId && r.ObraId == obraId).ToListAsync(ct);
+        if (existentes.Any()) db.RecentObras.RemoveRange(existentes);
+        db.RecentObras.Add(new CRObras.Domain.Entities.RecentObra { UserId = userId, ObraId = obraId, CriadoEm = DateTimeOffset.UtcNow });
+        // trim to last 5
+        await db.SaveChangesAsync(ct);
+        var extras = await db.RecentObras.Where(r => r.UserId == userId).OrderByDescending(r => r.CriadoEm).Skip(5).ToListAsync(ct);
+        if (extras.Any()) { db.RecentObras.RemoveRange(extras); await db.SaveChangesAsync(ct); }
+    }
+
+    public async Task LimparObrasRecentesAsync(Guid userId, CancellationToken ct)
+    {
+        var items = await db.RecentObras.Where(r => r.UserId == userId).ToListAsync(ct);
+        if (items.Any()) { db.RecentObras.RemoveRange(items); await db.SaveChangesAsync(ct); }
+    }
+
     public async Task<MovimentacaoResponse> CancelarMovimentacaoAsync(Guid obraId, Guid movimentacaoId, CancellationToken ct)
     {
         var obra = await BuscarObraAsync(obraId, ct);

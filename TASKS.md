@@ -45,13 +45,20 @@
 41. Adicionar filtro de extrato por fornecedor.
 42. Adicionar exportacao CSV do extrato financeiro filtrado.
 43. Adicionar indicadores visuais de carregamento por painel.
+44. Adicionar atalhos de acao rapida para obras recentes.
 
 ## Ajustes Implementados Agora
 
 1. Adicionados indicadores de carregamento por painel.
 2. Painel lateral, resumo da obra, vinculos, socios, financeiro, venda e encerramento exibem carregamento proprio.
 3. Indicadores usam estado local e nao adicionam chamadas extras para a API.
+4. Adicionados atalhos de acao rapida para obras recentes (painel "Atalhos" com persistencia em localStorage).
+5. Adicionado atalho de teclado `/` para focar a busca de obras na barra lateral.
+6. Adicionado atalho `Escape` para limpar a busca de obras e remover foco.
+7. Adicionado gerenciamento de materiais por obra (quantidade, preco unitario, total, exportacao CSV) persistido em localStorage.
+8. Persistencia de atalhos de obras recentes no backend (substitui localStorage).
+9. Criadas migrations para `materiais` e `recent_obras` (arquivo de migration adicionado, executar `dotnet ef database update` para aplicar).
 
 ## Proximas Tasks Recomendadas
 
-44. Adicionar atalhos de acao rapida para obras recentes.
+Nenhuma task recomendada no momento.
