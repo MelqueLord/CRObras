@@ -321,7 +321,7 @@ public sealed class CRObrasService(IAppDbContext db)
         return await db.Materiais.AsNoTracking()
             .Where(m => m.ObraId == obraId)
             .OrderByDescending(m => m.Id)
-            .Select(m => new CRObras.Application.Obras.MaterialResponse(m.Id, m.ObraId, m.Nome, m.Quantidade, m.PrecoUnitario))
+            .Select(m => new CRObras.Application.Obras.MaterialResponse(m.Id, m.ObraId, m.FornecedorId, m.Fornecedor == null ? null : m.Fornecedor.Nome, m.Nome, m.Quantidade, m.PrecoUnitario))
             .ToListAsync(ct);
     }
 
@@ -353,17 +353,19 @@ public sealed class CRObrasService(IAppDbContext db)
         var obra = await BuscarObraAsync(obraId, ct);
         obra.GarantirAberta();
         ValidarMaterial(request);
+        await GarantirFornecedorAtivoAsync(request.FornecedorId, ct);
 
         var material = new CRObras.Domain.Entities.Material
         {
             ObraId = obraId,
+            FornecedorId = request.FornecedorId,
             Nome = request.Nome.Trim(),
             Quantidade = request.Quantidade,
             PrecoUnitario = request.PrecoUnitario
         };
         db.Materiais.Add(material);
         await db.SaveChangesAsync(ct);
-        return new CRObras.Application.Obras.MaterialResponse(material.Id, material.ObraId, material.Nome, material.Quantidade, material.PrecoUnitario);
+        return await ObterMaterialResponseAsync(material.Id, ct);
     }
 
     public async Task<CRObras.Application.Obras.MaterialResponse> AtualizarMaterialAsync(Guid obraId, Guid materialId, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct)
@@ -371,16 +373,18 @@ public sealed class CRObrasService(IAppDbContext db)
         var obra = await BuscarObraAsync(obraId, ct);
         obra.GarantirAberta();
         ValidarMaterial(request);
+        await GarantirFornecedorAtivoAsync(request.FornecedorId, ct);
 
         var material = await db.Materiais.FirstOrDefaultAsync(m => m.Id == materialId && m.ObraId == obraId, ct)
             ?? throw new ServiceException("Material nao encontrado.");
 
+        material.FornecedorId = request.FornecedorId;
         material.Nome = request.Nome.Trim();
         material.Quantidade = request.Quantidade;
         material.PrecoUnitario = request.PrecoUnitario;
 
         await db.SaveChangesAsync(ct);
-        return new CRObras.Application.Obras.MaterialResponse(material.Id, material.ObraId, material.Nome, material.Quantidade, material.PrecoUnitario);
+        return await ObterMaterialResponseAsync(material.Id, ct);
     }
 
     public async Task RemoverMaterialAsync(Guid obraId, Guid materialId, CancellationToken ct)
@@ -963,6 +967,10 @@ public sealed class CRObrasService(IAppDbContext db)
     private static void ValidarMaterial(CRObras.Application.Obras.MaterialRequest request)
     {
         ValidarTexto(request.Nome, "Nome do material");
+        if (!request.FornecedorId.HasValue)
+        {
+            throw new ServiceException("Fornecedor do material e obrigatorio.");
+        }
         if (request.Quantidade <= 0)
         {
             throw new ServiceException("Quantidade deve ser maior que zero.");
@@ -971,6 +979,22 @@ public sealed class CRObrasService(IAppDbContext db)
         {
             throw new ServiceException("Preco unitario invalido.");
         }
+    }
+
+    private async Task GarantirFornecedorAtivoAsync(Guid? fornecedorId, CancellationToken ct)
+    {
+        if (!fornecedorId.HasValue || !await db.Fornecedores.AnyAsync(f => f.Id == fornecedorId.Value && f.Ativo, ct))
+        {
+            throw new ServiceException("Fornecedor ativo nao encontrado.");
+        }
+    }
+
+    private async Task<CRObras.Application.Obras.MaterialResponse> ObterMaterialResponseAsync(Guid materialId, CancellationToken ct)
+    {
+        return await db.Materiais.AsNoTracking()
+            .Where(m => m.Id == materialId)
+            .Select(m => new CRObras.Application.Obras.MaterialResponse(m.Id, m.ObraId, m.FornecedorId, m.Fornecedor == null ? null : m.Fornecedor.Nome, m.Nome, m.Quantidade, m.PrecoUnitario))
+            .FirstAsync(ct);
     }
 
     private static void ValidarPercentual(decimal percentual)

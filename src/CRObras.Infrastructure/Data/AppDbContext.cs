@@ -183,7 +183,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(e => e.Quantidade).HasPrecision(18, 4);
             entity.Property(e => e.PrecoUnitario).HasPrecision(18, 2);
             entity.HasIndex(e => e.ObraId);
+            entity.HasIndex(e => e.FornecedorId);
             entity.HasOne<Obra>().WithMany().HasForeignKey("ObraId").OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Fornecedor).WithMany().HasForeignKey(e => e.FornecedorId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<CRObras.Domain.Entities.RecentObra>(entity =>

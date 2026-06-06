@@ -87,12 +87,15 @@ public sealed class ApiIntegrationTests
         var token = await LoginAsync(client);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         var obra = await CriarObraAsync(client);
+        var fornecedorResponse = await client.PostAsJsonAsync("/api/fornecedores", new FornecedorRequest("Fornecedor Material", null, null, true));
+        fornecedorResponse.EnsureSuccessStatusCode();
+        var fornecedor = await fornecedorResponse.Content.ReadFromJsonAsync<FornecedorResponse>();
 
-        var createResponse = await client.PostAsJsonAsync($"/api/obras/{obra.Id}/materiais", new MaterialRequest("Cimento", 10, 32.5m));
+        var createResponse = await client.PostAsJsonAsync($"/api/obras/{obra.Id}/materiais", new MaterialRequest("Cimento", 10, 32.5m, fornecedor!.Id));
         createResponse.EnsureSuccessStatusCode();
         var criado = await createResponse.Content.ReadFromJsonAsync<MaterialResponse>();
 
-        var updateResponse = await client.PutAsJsonAsync($"/api/obras/{obra.Id}/materiais/{criado!.Id}", new MaterialRequest("Cimento CP II", 12, 34.9m));
+        var updateResponse = await client.PutAsJsonAsync($"/api/obras/{obra.Id}/materiais/{criado!.Id}", new MaterialRequest("Cimento CP II", 12, 34.9m, fornecedor.Id));
         updateResponse.EnsureSuccessStatusCode();
         var atualizado = await updateResponse.Content.ReadFromJsonAsync<MaterialResponse>();
 
@@ -102,9 +105,11 @@ public sealed class ApiIntegrationTests
         var materiaisAposRemocao = await client.GetFromJsonAsync<IReadOnlyCollection<MaterialResponse>>($"/api/obras/{obra.Id}/materiais");
 
         Assert.Equal("Cimento CP II", atualizado!.Nome);
+        Assert.Equal(fornecedor.Id, atualizado.FornecedorId);
+        Assert.Equal("Fornecedor Material", atualizado.FornecedorNome);
         Assert.Equal(12, atualizado.Quantidade);
         Assert.Equal(34.9m, atualizado.PrecoUnitario);
-        Assert.Contains(materiais!, material => material.Id == criado.Id && material.Nome == "Cimento CP II");
+        Assert.Contains(materiais!, material => material.Id == criado.Id && material.Nome == "Cimento CP II" && material.FornecedorId == fornecedor.Id);
         Assert.Contains(catalogo!, material => material.Nome == "Cimento CP II" && material.PrecoUnitario == 34.9m && material.Usos == 1);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
         Assert.DoesNotContain(materiaisAposRemocao!, material => material.Id == criado.Id);

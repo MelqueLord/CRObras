@@ -240,6 +240,40 @@ namespace CRObras.Infrastructure.Data.Migrations
                     b.ToTable("fornecedores", (string)null);
                 });
 
+            modelBuilder.Entity("CRObras.Domain.Entities.Material", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FornecedorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Nome")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("ObraId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("PrecoUnitario")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("Quantidade")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FornecedorId");
+
+                    b.HasIndex("ObraId");
+
+                    b.ToTable("materiais", (string)null);
+                });
+
             modelBuilder.Entity("CRObras.Domain.Entities.MovimentacaoFinanceira", b =>
                 {
                     b.Property<Guid>("Id")
@@ -405,6 +439,28 @@ namespace CRObras.Infrastructure.Data.Migrations
                     b.HasIndex("ObraId", "Status", "DataVencimento");
 
                     b.ToTable("parcelas_receber", (string)null);
+                });
+
+            modelBuilder.Entity("CRObras.Domain.Entities.RecentObra", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ObraId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CriadoEm");
+
+                    b.ToTable("recent_obras", (string)null);
                 });
 
             modelBuilder.Entity("CRObras.Domain.Entities.Socio", b =>
@@ -795,6 +851,22 @@ namespace CRObras.Infrastructure.Data.Migrations
                     b.Navigation("Obra");
 
                     b.Navigation("Socio");
+                });
+
+            modelBuilder.Entity("CRObras.Domain.Entities.Material", b =>
+                {
+                    b.HasOne("CRObras.Domain.Entities.Fornecedor", "Fornecedor")
+                        .WithMany()
+                        .HasForeignKey("FornecedorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CRObras.Domain.Entities.Obra", null)
+                        .WithMany()
+                        .HasForeignKey("ObraId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Fornecedor");
                 });
 
             modelBuilder.Entity("CRObras.Domain.Entities.ObraSocio", b =>

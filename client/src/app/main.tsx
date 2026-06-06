@@ -12,7 +12,8 @@ type Fornecedor = { id: string; nome: string; documento?: string; telefone?: str
 type Movimento = { id: string; tipo: number; categoria: string; valor: number; dataMovimentacao: string; descricao: string; status: number; parcelaReceberId?: string; fornecedor?: string };
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
 type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
-type Material = { id: string; nome: string; quantidade: number; precoUnitario: number };
+type Material = { id: string; fornecedorId?: string; fornecedorNome?: string; nome: string; quantidade: number; precoUnitario: number };
+type MaterialPayload = { fornecedorId: string; nome: string; quantidade: number; precoUnitario: number };
 type MaterialCatalogo = { nome: string; precoUnitario: number; usos: number };
 type Venda = { id: string; tipo: number; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; dataVenda: string; status: number; parcelas: Parcela[]; permutas: Permuta[] };
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
@@ -257,6 +258,13 @@ async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
       }
       throw new Error(message);
     }
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (!contentType.includes('application/json')) {
+      return undefined as T;
+    }
     return response.json();
   } catch (err) {
     const message = err instanceof DOMException && err.name === 'AbortError'
@@ -390,6 +398,7 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const [activeTab, setActiveTab] = useState('resumo');
   const [buscaObra, setBuscaObra] = useState('');
   const buscaObraRef = React.useRef<HTMLInputElement | null>(null);
+  const [sociosObraVersion, setSociosObraVersion] = useState(0);
   const [filtroStatusObra, setFiltroStatusObra] = useState('todos');
   const [ordenacaoObras, setOrdenacaoObras] = useState('nome');
   const selectedObra = useMemo(() => obras.find((obra) => obra.id === selectedObraId), [obras, selectedObraId]);
@@ -680,19 +689,19 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                     <ResumoFinanceiroObra obraId={selectedObra.id} />
                     <div className="grid gap-4 xl:grid-cols-2">
                       <ObraEditForm obra={selectedObra} onDone={() => void loadObras(true)} />
-                      <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => undefined} />
+                      <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => setSociosObraVersion((version) => version + 1)} />
                     </div>
                   </div>
                 </Panel>
               )}
-              {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={refreshOverview} />}
+              {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} sociosVersion={sociosObraVersion} onDone={refreshOverview} />}
               {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={() => undefined} />}
               {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={refreshOverview} />}
               {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={refreshOverview} />}
               {activeTab === 'socios' && (
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <Panel title="Vincular socio a obra">
-                    <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => undefined} />
+                    <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => setSociosObraVersion((version) => version + 1)} />
                   </Panel>
                   <SocioForm onDone={(socio) => {
                     if (socio) {
@@ -1022,11 +1031,17 @@ function SocioEditor({ socio, onSave, onRemove }: { socio: Socio; onSave: (socio
 function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [materiais, setMateriais] = useState<Material[]>([]);
   const [catalogo, setCatalogo] = useState<MaterialCatalogo[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [nome, setNome] = useState('');
   const [quantidade, setQuantidade] = useState('1');
   const [preco, setPreco] = useState('0,00');
+  const [fornecedorId, setFornecedorId] = useState('');
+  const [novoFornecedor, setNovoFornecedor] = useState('');
   const [loading, setLoading] = useState(true);
   const catalogoId = `catalogo-materiais-${obraId}`;
+  const fornecedoresAtivos = fornecedores.filter((fornecedor) => fornecedor.ativo);
+  const canCriarFornecedor = !isBlank(novoFornecedor);
+  const canAdicionar = nome.trim().length > 0 && !isBlank(fornecedorId);
 
   async function load() {
     setLoading(true);
@@ -1048,7 +1063,15 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     }
   }
 
-  useEffect(() => { void load(); void loadCatalogo(); }, [obraId]);
+  async function loadFornecedores() {
+    try {
+      setFornecedores(await api<Fornecedor[]>('/api/fornecedores', { silent: true }));
+    } catch {
+      setFornecedores([]);
+    }
+  }
+
+  useEffect(() => { void load(); void loadCatalogo(); void loadFornecedores(); }, [obraId]);
 
   function atualizarNome(value: string) {
     setNome(value);
@@ -1060,18 +1083,26 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
 
   async function adicionar(event?: React.FormEvent) {
     if (event) event.preventDefault();
-    if (!nome.trim()) return;
+    if (!canAdicionar) return;
     const q = parseDecimalInput(quantidade) || 0;
     const p = parseDecimalInput(preco) || 0;
-    const body = { nome: nome.trim(), quantidade: q, precoUnitario: p };
+    const body = { fornecedorId, nome: nome.trim(), quantidade: q, precoUnitario: p };
     const created = await api<Material>(`/api/obras/${obraId}/materiais`, { method: 'POST', body: JSON.stringify(body) });
     setMateriais((current) => [created, ...current]);
     setCatalogo((current) => atualizarCatalogoMateriais(current, created, true));
-    setNome(''); setQuantidade('1'); setPreco('0,00');
+    setNome(''); setQuantidade('1'); setPreco('0,00'); setFornecedorId('');
     onDone();
   }
 
-  async function salvar(material: Material, changes: Omit<Material, 'id'>) {
+  async function criarFornecedor() {
+    if (!canCriarFornecedor) return;
+    const fornecedor = await api<Fornecedor>('/api/fornecedores', { method: 'POST', body: JSON.stringify({ nome: novoFornecedor, documento: '', telefone: '', ativo: true }) });
+    setNovoFornecedor('');
+    setFornecedorId(fornecedor.id);
+    setFornecedores((current) => current.some((item) => item.id === fornecedor.id) ? current : [...current, fornecedor].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')));
+  }
+
+  async function salvar(material: Material, changes: MaterialPayload) {
     const updated = await api<Material>(`/api/obras/${obraId}/materiais/${material.id}`, {
       method: 'PUT',
       body: JSON.stringify(changes)
@@ -1092,7 +1123,19 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
 
   return (
     <Panel title="Materiais">
-      <form onSubmit={adicionar} className="grid gap-2 sm:grid-cols-[1fr_120px_120px_auto]">
+      <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+        <FormField label="Novo fornecedor">
+          <input className="input" value={novoFornecedor} onChange={(e) => setNovoFornecedor(e.target.value)} placeholder="Nome do fornecedor" />
+        </FormField>
+        <button className="btn-secondary self-end" type="button" disabled={!canCriarFornecedor} onClick={criarFornecedor}>Cadastrar fornecedor</button>
+      </div>
+      <form onSubmit={adicionar} className="grid gap-2 sm:grid-cols-[1fr_1fr_120px_120px_auto]">
+        <FormField label="Fornecedor">
+          <select className="input" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+            <option value="">Selecionar fornecedor</option>
+            {fornecedoresAtivos.map((fornecedor) => <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.nome}</option>)}
+          </select>
+        </FormField>
         <FormField label="Material">
           <input className="input" list={catalogoId} value={nome} onChange={(e) => atualizarNome(e.target.value)} placeholder="Nome do material" />
           <datalist id={catalogoId}>
@@ -1107,32 +1150,34 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
         <FormField label="Preco unitario">
           <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="Ex: 12,50" />
         </FormField>
-        <button className="btn-primary self-end" disabled={!nome.trim()}>Adicionar</button>
+        <button className="btn-primary self-end" disabled={!canAdicionar}>Adicionar</button>
       </form>
       <div className="mt-3 space-y-2">
         {materiais.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum material registrado para esta obra.</p>}
         {materiais.map((m) => (
-          <MaterialRow key={m.id} material={m} onSave={salvar} onRemove={remover} />
+          <MaterialRow key={m.id} material={m} fornecedores={fornecedoresAtivos} onSave={salvar} onRemove={remover} />
         ))}
       </div>
       <div className="mt-3 text-right font-medium">Total gasto com materiais: {money(total)}</div>
       <div className="mt-2 text-right">
-        <button className="btn-secondary" onClick={() => { downloadCsv(`materiais-${obraId}-${today()}.csv`, ['Nome','Quantidade','PrecoUnitario','Total'], materiais.map(m => [m.nome, m.quantidade, m.precoUnitario.toFixed(2).replace('.',','), (m.quantidade*m.precoUnitario).toFixed(2).replace('.',',')])); }}>Exportar CSV</button>
+        <button className="btn-secondary" onClick={() => { downloadCsv(`materiais-${obraId}-${today()}.csv`, ['Fornecedor','Nome','Quantidade','PrecoUnitario','Total'], materiais.map(m => [m.fornecedorNome ?? '', m.nome, m.quantidade, m.precoUnitario.toFixed(2).replace('.',','), (m.quantidade*m.precoUnitario).toFixed(2).replace('.',',')])); }}>Exportar CSV</button>
       </div>
     </Panel>
   );
 }
 
-function MaterialRow({ material, onSave, onRemove }: { material: Material; onSave: (material: Material, changes: Omit<Material, 'id'>) => Promise<void>; onRemove: (id: string) => Promise<void> }) {
+function MaterialRow({ material, fornecedores, onSave, onRemove }: { material: Material; fornecedores: Fornecedor[]; onSave: (material: Material, changes: MaterialPayload) => Promise<void>; onRemove: (id: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
+  const [fornecedorId, setFornecedorId] = useState(material.fornecedorId ?? '');
   const [nome, setNome] = useState(material.nome);
   const [quantidade, setQuantidade] = useState(String(material.quantidade));
   const [preco, setPreco] = useState(material.precoUnitario.toFixed(2).replace('.', ','));
   const q = parseDecimalInput(quantidade);
   const p = parseDecimalInput(preco);
-  const canSubmit = nome.trim().length > 0 && Number.isFinite(q) && q > 0 && Number.isFinite(p) && p >= 0;
+  const canSubmit = !isBlank(fornecedorId) && nome.trim().length > 0 && Number.isFinite(q) && q > 0 && Number.isFinite(p) && p >= 0;
 
   function resetForm() {
+    setFornecedorId(material.fornecedorId ?? '');
     setNome(material.nome);
     setQuantidade(String(material.quantidade));
     setPreco(material.precoUnitario.toFixed(2).replace('.', ','));
@@ -1147,7 +1192,7 @@ function MaterialRow({ material, onSave, onRemove }: { material: Material; onSav
       <div className="flex items-center justify-between gap-3 rounded border px-3 py-2">
         <div>
           <div className="font-medium">{material.nome}</div>
-          <div className="text-xs text-zinc-500">{material.quantidade} x {money(material.precoUnitario)} = {money(material.quantidade * material.precoUnitario)}</div>
+          <div className="text-xs text-zinc-500">{material.fornecedorNome || 'Fornecedor nao informado'} · {material.quantidade} x {money(material.precoUnitario)} = {money(material.quantidade * material.precoUnitario)}</div>
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary" type="button" onClick={() => setEditing(true)}>Editar</button>
@@ -1159,14 +1204,18 @@ function MaterialRow({ material, onSave, onRemove }: { material: Material; onSav
 
   return (
     <form
-      className="grid gap-2 rounded border border-zinc-300 bg-zinc-50 p-2 sm:grid-cols-[1fr_120px_120px_auto_auto]"
+      className="grid gap-2 rounded border border-zinc-300 bg-zinc-50 p-2 sm:grid-cols-[1fr_1fr_120px_120px_auto_auto]"
       onSubmit={async (event) => {
         event.preventDefault();
         if (!canSubmit) return;
-        await onSave(material, { nome: nome.trim(), quantidade: q, precoUnitario: p });
+        await onSave(material, { fornecedorId, nome: nome.trim(), quantidade: q, precoUnitario: p });
         setEditing(false);
       }}
     >
+      <select className="input" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+        <option value="">Selecionar fornecedor</option>
+        {fornecedores.map((fornecedor) => <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.nome}</option>)}
+      </select>
       <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} />
       <input className="input" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
       <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} />
@@ -1193,7 +1242,7 @@ function PercentualEditor({ vinculo, onSave }: { vinculo: ObraSocio; onSave: (so
   );
 }
 
-function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) {
+function Financeiro({ obraId, sociosVersion, onDone }: { obraId: string; sociosVersion: number; onDone: () => void }) {
   const [movs, setMovs] = useState<Movimento[]>([]);
   const [socios, setSocios] = useState<ObraSocio[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
@@ -1211,6 +1260,14 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   const [dataInicial, setDataInicial] = useState('');
   const [dataFinal, setDataFinal] = useState('');
   const [error, setError] = useState('');
+  async function loadSociosVinculados() {
+    try {
+      setSocios(await api<ObraSocio[]>(`/api/obras/${obraId}/socios`, { silent: true }));
+    } catch {
+      // Mantem a lista atual quando a atualizacao em segundo plano falhar.
+    }
+  }
+
   async function loadFinanceiro() {
     setLoadingMovs(true);
     try {
@@ -1219,11 +1276,12 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
     } finally {
       setLoadingMovs(false);
     }
-    void api<ObraSocio[]>(`/api/obras/${obraId}/socios`, { silent: true }).then(setSocios).catch(() => undefined);
+    void loadSociosVinculados();
     void api<Fornecedor[]>('/api/fornecedores', { silent: true }).then(setFornecedores).catch(() => undefined);
   }
 
   useEffect(() => { void loadFinanceiro(); }, [obraId]);
+  useEffect(() => { void loadSociosVinculados(); }, [obraId, sociosVersion]);
   const fornecedoresDoExtrato = useMemo(() => {
     const nomes = new Set<string>();
     for (const movimentacao of movs) {
