@@ -525,8 +525,53 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   const valorPendente = parcelasPendentes.reduce((total, parcela) => total + parcela.valor, 0);
 
   return (
-    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[300px_1fr]">
-      <aside className="space-y-4">
+    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[340px_1fr]">
+      <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+        <Panel title="Obras">
+          <ObraForm onCreated={addObra} />
+          <label className="mt-3 block">
+            <span className="field-label">Buscar obra</span>
+            <input ref={buscaObraRef} className="input" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Nome, endereco ou status" />
+          </label>
+          <div className="mt-3 grid grid-cols-2 gap-1">
+            {filtrosStatusObra.map((filtro) => (
+              <button
+                key={filtro.value}
+                className={`rounded border px-2 py-1.5 text-xs font-medium transition ${filtroStatusObra === filtro.value ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400'}`}
+                type="button"
+                onClick={() => setFiltroStatusObra(filtro.value)}
+              >
+                {filtro.label} ({totaisPorStatus.get(filtro.value) ?? 0})
+              </button>
+            ))}
+          </div>
+          <label className="mt-2 block">
+            <span className="field-label">Ordenacao</span>
+            <select className="input" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
+              <option value="nome">Nome</option>
+              <option value="status">Status</option>
+              <option value="saldoMaior">Maior saldo primeiro</option>
+              <option value="saldoMenor">Menor saldo primeiro</option>
+            </select>
+          </label>
+          <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
+          <div className="mt-3 max-h-[440px] space-y-2 overflow-auto pr-1">
+            {loadingObras && obras.length === 0 && <LoadingStrip />}
+            {obrasVisiveis.map((obra) => (
+              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
+                <span className="flex items-start justify-between gap-2">
+                  <span className="font-medium">{obra.nome}</span>
+                  <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${obraStatusBadgeClass(obra.status, obra.id === selectedObraId)}`}>
+                    {obraStatusLabel(obra.status)}
+                  </span>
+                </span>
+                <span className="mt-1 block text-xs opacity-75">{money(obra.saldoAtual)}</span>
+              </button>
+            ))}
+            {!loadingObras && obras.length === 0 && <EmptyState title="Nenhuma obra cadastrada" text="O painel financeiro fica disponivel apos o primeiro cadastro." />}
+            {obras.length > 0 && obrasVisiveis.length === 0 && <EmptyState title="Nenhuma obra encontrada" text="Nao ha resultados para os filtros atuais." />}
+          </div>
+        </Panel>
         <Panel title="Resumo geral">
           {loadingDashboard && !dashboard && <LoadingStrip />}
           <div className="grid grid-cols-2 gap-3">
@@ -551,12 +596,12 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                 <span className="text-xs opacity-75">{parcela.dataVencimento} · {money(parcela.valor)} · {parcela.status}</span>
               </button>
             ))}
-            {!loadingParcelas && parcelasPendentes.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma parcela pendente.</p>}
+            {!loadingParcelas && parcelasPendentes.length === 0 && <EmptyState title="Sem pendencias" text="Nenhuma parcela pendente no momento." />}
           </div>
         </Panel>
         <Panel title="Atalhos">
           <div className="space-y-2">
-            {recentObras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum atalho ainda.</p>}
+            {recentObras.length === 0 && <EmptyState title="Sem atalhos" text="As obras abertas recentemente aparecem aqui." />}
             {recentObras.map((id) => {
               const obra = obras.find((o) => o.id === id);
               if (!obra) return null;
@@ -574,45 +619,6 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
               );
             })}
             {recentObras.length > 0 && <div className="mt-2 text-right"><button className="text-xs text-zinc-600" onClick={clearRecent}>Limpar</button></div>}
-          </div>
-        </Panel>
-        <Panel title="Obras">
-          <ObraForm onCreated={addObra} />
-          <input ref={buscaObraRef} className="input mt-3" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Buscar obra" />
-          <div className="mt-3 grid grid-cols-2 gap-1">
-            {filtrosStatusObra.map((filtro) => (
-              <button
-                key={filtro.value}
-                className={`rounded border px-2 py-1.5 text-xs font-medium transition ${filtroStatusObra === filtro.value ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400'}`}
-                type="button"
-                onClick={() => setFiltroStatusObra(filtro.value)}
-              >
-                {filtro.label} ({totaisPorStatus.get(filtro.value) ?? 0})
-              </button>
-            ))}
-          </div>
-          <select className="input mt-2" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
-            <option value="nome">Ordenar por nome</option>
-            <option value="status">Ordenar por status</option>
-            <option value="saldoMaior">Maior saldo primeiro</option>
-            <option value="saldoMenor">Menor saldo primeiro</option>
-          </select>
-          <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
-          <div className="mt-3 space-y-2">
-            {loadingObras && obras.length === 0 && <LoadingStrip />}
-            {obrasVisiveis.map((obra) => (
-              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
-                <span className="flex items-start justify-between gap-2">
-                  <span className="font-medium">{obra.nome}</span>
-                  <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${obraStatusBadgeClass(obra.status, obra.id === selectedObraId)}`}>
-                    {obraStatusLabel(obra.status)}
-                  </span>
-                </span>
-                <span className="mt-1 block text-xs opacity-75">{money(obra.saldoAtual)}</span>
-              </button>
-            ))}
-            {!loadingObras && obras.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Crie uma obra para comecar.</p>}
-            {obras.length > 0 && obrasVisiveis.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhuma obra encontrada.</p>}
           </div>
         </Panel>
       </aside>
@@ -720,9 +726,12 @@ function ObraForm({ onCreated }: { onCreated: (obra: Obra) => void }) {
   }
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="flex gap-2">
-        <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nova obra" />
-        <button className="btn-primary" disabled={!canSubmit}>Criar</button>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] lg:grid-cols-1 xl:grid-cols-[1fr_auto]">
+        <label>
+          <span className="field-label">Nova obra</span>
+          <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da obra" />
+        </label>
+        <button className="btn-primary self-end" disabled={!canSubmit}>Criar</button>
       </div>
       {error && <ErrorText message={error} />}
     </form>
@@ -767,15 +776,23 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
 
   return (
     <form onSubmit={submit} className="grid gap-2">
-      <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da obra" />
-      <input className="input" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Endereco" />
-      <textarea className="input min-h-20" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descricao" />
-      <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-        <option value="1">Planejada</option>
-        <option value="2">Em andamento</option>
-        <option value="3">Vendida</option>
-        <option value="5">Cancelada</option>
-      </select>
+      <FormField label="Nome da obra">
+        <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Residencial Centro" />
+      </FormField>
+      <FormField label="Endereco">
+        <input className="input" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, numero, bairro" />
+      </FormField>
+      <FormField label="Descricao">
+        <textarea className="input min-h-20" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Observacoes da obra" />
+      </FormField>
+      <FormField label="Status">
+        <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="1">Planejada</option>
+          <option value="2">Em andamento</option>
+          <option value="3">Vendida</option>
+          <option value="5">Cancelada</option>
+        </select>
+      </FormField>
       {error && <ErrorText message={error} />}
       <button className="btn-primary" disabled={!canSubmit}>Salvar obra</button>
     </form>
@@ -1224,51 +1241,84 @@ function Financeiro({ obraId, onDone }: { obraId: string; onDone: () => void }) 
   }
   return (
     <Panel title="Financeiro">
-      <div className="grid gap-2 sm:grid-cols-2">
-        <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Socio para aporte</option>{socios.map((s) => <option key={s.socioId} value={s.socioId}>{s.socioNome}</option>)}</select>
-        <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor" />
-        <select className="input" value={categoriaDespesa} onChange={(e) => setCategoriaDespesa(e.target.value)}>
-          {categoriasDespesa.map((categoria) => <option key={categoria.value} value={categoria.value}>{categoria.label}</option>)}
-        </select>
-        <select className="input" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
-          <option value="">Fornecedor da despesa</option>
-          {fornecedoresAtivos.map((fornecedor) => <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.nome}</option>)}
-        </select>
-        <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[1fr_auto]">
-          <input className="input" value={novoFornecedor} onChange={(e) => setNovoFornecedor(e.target.value)} placeholder="Novo fornecedor" />
-          <button className="btn-secondary" type="button" disabled={!canCriarFornecedor} onClick={criarFornecedor}>Cadastrar fornecedor</button>
-        </div>
-        {fornecedores.length > 0 && (
-          <div className="sm:col-span-2">
-            <FornecedorManager fornecedores={fornecedores} onSave={salvarFornecedor} />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="surface">
+          <h3 className="section-title">Novo lancamento</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <FormField label="Socio para aporte">
+              <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Selecionar socio</option>{socios.map((s) => <option key={s.socioId} value={s.socioId}>{s.socioNome}</option>)}</select>
+            </FormField>
+            <FormField label="Valor">
+              <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" />
+            </FormField>
+            <FormField label="Categoria da despesa">
+              <select className="input" value={categoriaDespesa} onChange={(e) => setCategoriaDespesa(e.target.value)}>
+                {categoriasDespesa.map((categoria) => <option key={categoria.value} value={categoria.value}>{categoria.label}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Fornecedor">
+              <select className="input" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
+                <option value="">Sem fornecedor</option>
+                {fornecedoresAtivos.map((fornecedor) => <option key={fornecedor.id} value={fornecedor.id}>{fornecedor.nome}</option>)}
+              </select>
+            </FormField>
+            <div className="sm:col-span-2">
+              <FormField label="Descricao">
+                <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: compra de cimento, aporte inicial" />
+              </FormField>
+            </div>
+            {error && <div className="sm:col-span-2"><ErrorText message={error} /></div>}
+            <button className="btn-primary" disabled={!canAportar} onClick={aporte}>Registrar aporte</button>
+            <button className="btn-secondary" disabled={!canDespesa} onClick={despesa}>Registrar despesa</button>
           </div>
-        )}
-        <input className="input sm:col-span-2" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descricao" />
-        {error && <div className="sm:col-span-2"><ErrorText message={error} /></div>}
-        <button className="btn-primary" disabled={!canAportar} onClick={aporte}>Aporte</button>
-        <button className="btn-secondary" disabled={!canDespesa} onClick={despesa}>Despesa</button>
+        </section>
+        <section className="surface">
+          <h3 className="section-title">Fornecedores</h3>
+          <div className="mt-3 grid gap-2">
+            <FormField label="Novo fornecedor">
+              <input className="input" value={novoFornecedor} onChange={(e) => setNovoFornecedor(e.target.value)} placeholder="Nome do fornecedor" />
+            </FormField>
+            <button className="btn-secondary" type="button" disabled={!canCriarFornecedor} onClick={criarFornecedor}>Cadastrar fornecedor</button>
+            {fornecedores.length > 0 && <FornecedorManager fornecedores={fornecedores} onSave={salvarFornecedor} />}
+          </div>
+        </section>
       </div>
-      <div className="mt-3 grid gap-2 rounded border border-zinc-200 p-3 lg:grid-cols-[1fr_140px_140px_180px_150px_150px_auto]">
-        <input className="input" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} placeholder="Buscar no extrato" />
-        <select className="input" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
-          <option value="todos">Todos tipos</option>
-          <option value="1">Aporte</option>
-          <option value="2">Despesa</option>
-          <option value="3">Venda</option>
-          <option value="4">Ajuste</option>
-        </select>
-        <select className="input" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
-          <option value="todos">Todos status</option>
-          <option value="1">Confirmada</option>
-          <option value="2">Cancelada</option>
-        </select>
-        <select className="input" value={filtroFornecedor} onChange={(e) => setFiltroFornecedor(e.target.value)}>
-          <option value="todos">Todos fornecedores</option>
-          {fornecedoresDoExtrato.map((fornecedor) => <option key={fornecedor} value={fornecedor}>{fornecedor}</option>)}
-        </select>
-        <input className="input" type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} />
-        <input className="input" type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} />
-        <button className="btn-secondary" type="button" onClick={() => { setFiltroTexto(''); setFiltroTipo('todos'); setFiltroStatus('todos'); setFiltroFornecedor('todos'); setDataInicial(''); setDataFinal(''); }}>Limpar</button>
+      <div className="mt-4 rounded border border-zinc-200 p-3">
+        <h3 className="section-title">Extrato</h3>
+        <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_140px_140px_180px_150px_150px_auto]">
+          <FormField label="Buscar">
+            <input className="input" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} placeholder="Descricao, categoria ou fornecedor" />
+          </FormField>
+          <FormField label="Tipo">
+            <select className="input" value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="1">Aporte</option>
+              <option value="2">Despesa</option>
+              <option value="3">Venda</option>
+              <option value="4">Ajuste</option>
+            </select>
+          </FormField>
+          <FormField label="Status">
+            <select className="input" value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+              <option value="todos">Todos</option>
+              <option value="1">Confirmada</option>
+              <option value="2">Cancelada</option>
+            </select>
+          </FormField>
+          <FormField label="Fornecedor">
+            <select className="input" value={filtroFornecedor} onChange={(e) => setFiltroFornecedor(e.target.value)}>
+              <option value="todos">Todos</option>
+              {fornecedoresDoExtrato.map((fornecedor) => <option key={fornecedor} value={fornecedor}>{fornecedor}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Inicio">
+            <input className="input" type="date" value={dataInicial} onChange={(e) => setDataInicial(e.target.value)} />
+          </FormField>
+          <FormField label="Fim">
+            <input className="input" type="date" value={dataFinal} onChange={(e) => setDataFinal(e.target.value)} />
+          </FormField>
+          <button className="btn-secondary self-end" type="button" onClick={() => { setFiltroTexto(''); setFiltroTipo('todos'); setFiltroStatus('todos'); setFiltroFornecedor('todos'); setDataInicial(''); setDataFinal(''); }}>Limpar</button>
+        </div>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <Metric label="Entradas filtradas" value={money(totalEntradasFiltradas)} />
@@ -1820,17 +1870,39 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       {loadingVenda && !venda ? (
         <LoadingStrip />
       ) : !venda ? (
-        <div className="grid gap-2">
-          <input className="input" value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Comprador" />
-          <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="Valor total" />
-          <input className="input" type="number" min="0" step="0.01" value={entrada} onChange={(e) => setEntrada(e.target.value)} placeholder="Entrada" />
-          <div className="grid gap-2 rounded border border-zinc-200 p-3 sm:grid-cols-3">
-            <input className="input" type="number" min="0.01" step="0.01" value={parcelasIniciaisValor} onChange={(e) => setParcelasIniciaisValor(e.target.value)} placeholder="Valor da parcela" />
-            <input className="input" type="number" min="1" step="1" value={parcelasIniciaisQtd} onChange={(e) => setParcelasIniciaisQtd(e.target.value)} placeholder="Qtd. parcelas" />
-            <input className="input" type="date" value={parcelasIniciaisVencimento} onChange={(e) => setParcelasIniciaisVencimento(e.target.value)} />
+        <div className="grid gap-4">
+          <section className="surface">
+            <h3 className="section-title">Dados da venda</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <FormField label="Comprador">
+                <input className="input" value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Nome do comprador" />
+              </FormField>
+              <FormField label="Valor total">
+                <input className="input" type="number" min="0.01" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="0,00" />
+              </FormField>
+              <FormField label="Entrada">
+                <input className="input" type="number" min="0" step="0.01" value={entrada} onChange={(e) => setEntrada(e.target.value)} placeholder="0,00" />
+              </FormField>
+            </div>
+          </section>
+          <section className="surface">
+            <h3 className="section-title">Parcelamento inicial</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <FormField label="Valor da parcela">
+                <input className="input" type="number" min="0.01" step="0.01" value={parcelasIniciaisValor} onChange={(e) => setParcelasIniciaisValor(e.target.value)} placeholder="0,00" />
+              </FormField>
+              <FormField label="Quantidade">
+                <input className="input" type="number" min="1" step="1" value={parcelasIniciaisQtd} onChange={(e) => setParcelasIniciaisQtd(e.target.value)} placeholder="Ex: 12" />
+              </FormField>
+              <FormField label="Primeiro vencimento">
+                <input className="input" type="date" value={parcelasIniciaisVencimento} onChange={(e) => setParcelasIniciaisVencimento(e.target.value)} />
+              </FormField>
+            </div>
+          </section>
+          <div>
+            {error && <ErrorText message={error} />}
+            <button className="btn-primary mt-2 w-full sm:w-auto" disabled={!canCriarVenda} onClick={criar}>Registrar venda</button>
           </div>
-          {error && <ErrorText message={error} />}
-          <button className="btn-primary" disabled={!canCriarVenda} onClick={criar}>Registrar venda</button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -1893,11 +1965,20 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
               <button className="btn-secondary" type="button" onClick={iniciarEdicaoVenda}>Editar venda</button>
             </div>
           )}
-          <div className="surface grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
-            <input className="input" type="number" min="0.01" step="0.01" value={parcelaValor} onChange={(e) => setParcelaValor(e.target.value)} placeholder="Valor da parcela" />
-            <input className="input" type="date" value={parcelaVencimento} onChange={(e) => setParcelaVencimento(e.target.value)} />
-            <input className="input" type="number" min="1" step="1" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
-            <button className="btn-secondary" disabled={!canAddParcelas} onClick={addParcelas}>Gerar</button>
+          <div className="surface">
+            <h3 className="section-title">Adicionar parcelas</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+              <FormField label="Valor">
+                <input className="input" type="number" min="0.01" step="0.01" value={parcelaValor} onChange={(e) => setParcelaValor(e.target.value)} placeholder="0,00" />
+              </FormField>
+              <FormField label="Primeiro vencimento">
+                <input className="input" type="date" value={parcelaVencimento} onChange={(e) => setParcelaVencimento(e.target.value)} />
+              </FormField>
+              <FormField label="Quantidade">
+                <input className="input" type="number" min="1" step="1" value={parcelasGerar} onChange={(e) => setParcelasGerar(e.target.value)} placeholder="Qtd." />
+              </FormField>
+              <button className="btn-secondary self-end" disabled={!canAddParcelas} onClick={addParcelas}>Gerar</button>
+            </div>
           </div>
           <div className="surface flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-zinc-600">
@@ -1937,15 +2018,24 @@ function VendaBox({ obraId, onDone }: { obraId: string; onDone: () => void }) {
               </tbody>
             </table>
           </div>
-          <div className="surface grid gap-2 sm:grid-cols-[1fr_160px_150px_auto]">
-            <input className="input" value={permuta} onChange={(e) => setPermuta(e.target.value)} placeholder="Descricao da permuta" />
-            <input className="input" type="number" min="0.01" step="0.01" value={valorPermuta} onChange={(e) => setValorPermuta(e.target.value)} placeholder="Valor" />
-            <select className="input" value={statusPermuta} onChange={(e) => setStatusPermuta(e.target.value)}>
-              <option value="1">Recebida</option>
-              <option value="2">Pendente</option>
-              <option value="3">Vendida</option>
-            </select>
-            <button className="btn-secondary" disabled={!canAddPermuta} onClick={addPermuta}>Adicionar</button>
+          <div className="surface">
+            <h3 className="section-title">Adicionar permuta</h3>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_160px_150px_auto]">
+              <FormField label="Descricao">
+                <input className="input" value={permuta} onChange={(e) => setPermuta(e.target.value)} placeholder="Descricao da permuta" />
+              </FormField>
+              <FormField label="Valor">
+                <input className="input" type="number" min="0.01" step="0.01" value={valorPermuta} onChange={(e) => setValorPermuta(e.target.value)} placeholder="0,00" />
+              </FormField>
+              <FormField label="Status">
+                <select className="input" value={statusPermuta} onChange={(e) => setStatusPermuta(e.target.value)}>
+                  <option value="1">Recebida</option>
+                  <option value="2">Pendente</option>
+                  <option value="3">Vendida</option>
+                </select>
+              </FormField>
+              <button className="btn-secondary self-end" disabled={!canAddPermuta} onClick={addPermuta}>Adicionar</button>
+            </div>
           </div>
           {error && <ErrorText message={error} />}
           <div className="overflow-auto">
@@ -2069,20 +2159,44 @@ function RelatorioFechamento({ obra, pre }: { obra: Obra; pre: PreFechamento }) 
   );
 }
 
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="rounded border border-zinc-200 bg-white p-4 shadow-sm"><h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">{title}</h2>{children}</section>;
+function Panel({ title, description, actions, children }: { title: string; description?: string; actions?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="panel">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">{title}</h2>
+          {description && <p className="mt-1 text-sm text-zinc-600">{description}</p>}
+        </div>
+        {actions && <div className="shrink-0">{actions}</div>}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 function Field({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="mb-3 block text-sm"><span className="mb-1 block text-zinc-600">{label}</span><input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} /></label>;
+  return <label className="mb-3 block text-sm"><span className="field-label">{label}</span><input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} /></label>;
+}
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><span className="field-label">{label}</span>{children}</label>;
 }
 
 function ErrorText({ message }: { message: string }) {
   return <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{message}</p>;
 }
 
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-sm">
+      <div className="font-medium text-zinc-800">{title}</div>
+      <div className="mt-1 text-zinc-500">{text}</div>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="mb-2"><div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div><div className="text-lg font-semibold">{value}</div></div>;
+  return <div className="rounded border border-zinc-200 bg-zinc-50 px-3 py-2"><div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div><div className="mt-1 text-lg font-semibold text-zinc-950">{value}</div></div>;
 }
 
 function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
