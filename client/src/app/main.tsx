@@ -13,6 +13,7 @@ type Movimento = { id: string; tipo: number; categoria: string; valor: number; d
 type Dashboard = { saldoTotal: number; totalInvestido: number; totalGasto: number; totalRecebido: number; obrasAtivas: number; obrasEncerradas: number };
 type ParcelaPendente = { parcelaId: string; obraId: string; obraNome: string; numero: number; valor: number; dataVencimento: string; status: string };
 type Material = { id: string; nome: string; quantidade: number; precoUnitario: number };
+type MaterialCatalogo = { nome: string; precoUnitario: number; usos: number };
 type Venda = { id: string; tipo: number; compradorNome: string; valorTotalNegociado: number; valorEntrada: number; dataVenda: string; status: number; parcelas: Parcela[]; permutas: Permuta[] };
 type Parcela = { id: string; numero: number; valor: number; dataVencimento: string; dataPagamento?: string; status: number };
 type Permuta = { id: string; tipo: number; descricao: string; valorEstimado: number; dataRecebimento: string; status: number };
@@ -174,6 +175,19 @@ function parseDecimalInput(value: string) {
   return Number(normalized);
 }
 
+function atualizarCatalogoMateriais(catalogo: MaterialCatalogo[], material: Material, novoUso = false) {
+  const nome = material.nome.trim();
+  if (!nome) return catalogo;
+  const index = catalogo.findIndex((item) => item.nome.toLowerCase() === nome.toLowerCase());
+  if (index < 0) {
+    return [...catalogo, { nome, precoUnitario: material.precoUnitario, usos: 1 }]
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }
+  return catalogo.map((item, itemIndex) => itemIndex === index
+    ? { ...item, nome, precoUnitario: material.precoUnitario, usos: novoUso ? item.usos + 1 : item.usos }
+    : item);
+}
+
 function isPositive(value: string) {
   const number = toNumber(value);
   return Number.isFinite(number) && number > 0;
@@ -219,7 +233,7 @@ type ApiOptions = RequestInit & { silent?: boolean; timeoutMs?: number };
 
 async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const token = localStorage.getItem('crobras.token');
-  const { silent = false, timeoutMs = 15000, ...requestOptions } = options;
+  const { silent = false, timeoutMs = 30000, ...requestOptions } = options;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   if (!silent) {
@@ -422,10 +436,10 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     return [selectedObra, ...obrasVisiveis];
   }, [obrasVisiveis, selectedObra]);
 
-  async function load() {
+  async function loadObras(silent = false) {
     setLoadingObras(true);
     try {
-      const obrasData = await api<Obra[]>('/api/obras');
+      const obrasData = await api<Obra[]>('/api/obras', { silent });
       setObras(obrasData);
       setSelectedObraId((current) => current || obrasData[0]?.id || '');
       onError('');
@@ -434,18 +448,43 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     } finally {
       setLoadingObras(false);
     }
+  }
 
-    void api<Socio[]>('/api/socios', { silent: true }).then(setSocios).catch(() => undefined);
+  async function loadSocios() {
+    try {
+      setSocios(await api<Socio[]>('/api/socios', { silent: true }));
+    } catch {
+      // Mantem a lista atual se a carga em segundo plano falhar.
+    }
+  }
+
+  function loadDashboardResumo() {
     setLoadingDashboard(true);
     void api<Dashboard>('/api/dashboard/resumo', { silent: true })
       .then(setDashboard)
       .catch(() => undefined)
       .finally(() => setLoadingDashboard(false));
+  }
+
+  function loadParcelasPendentes() {
     setLoadingParcelas(true);
     void api<ParcelaPendente[]>('/api/dashboard/parcelas-pendentes', { silent: true })
       .then(setParcelasPendentes)
       .catch(() => undefined)
       .finally(() => setLoadingParcelas(false));
+  }
+
+  function refreshOverview() {
+    void loadObras(true);
+    loadDashboardResumo();
+    loadParcelasPendentes();
+  }
+
+  async function load() {
+    await loadObras();
+    void loadSocios();
+    loadDashboardResumo();
+    loadParcelasPendentes();
   }
 
   function addObra(obra: Obra) {
@@ -510,21 +549,13 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     void api('/api/me/recent-obras', { method: 'DELETE' }).then(() => setRecentObras([])).catch(() => setRecentObras([]));
   }
 
-  function removeRecent(obraId: string) {
-    void api(`/api/me/recent-obras/${obraId}`, { method: 'DELETE' }).then(() => {
-      setRecentObras((current) => current.filter((id) => id !== obraId));
-    }).catch(() => {
-      setRecentObras((current) => current.filter((id) => id !== obraId));
-    });
-  }
-
   const tabs = [
     { id: 'resumo', label: 'Resumo', detail: 'Dados da obra' },
     { id: 'financeiro', label: 'Caixa', detail: 'Aportes e despesas' },
     { id: 'materiais', label: 'Materiais', detail: 'Itens comprados' },
     { id: 'venda', label: 'Venda', detail: 'Parcelas e permutas' },
     { id: 'encerramento', label: 'Fechamento', detail: 'Previa final' },
-    { id: 'socios', label: 'Socios', detail: 'Cadastros' }
+    { id: 'socios', label: 'Cadastros', detail: 'Socios globais' }
   ];
   const parcelasVencidas = parcelasPendentes.filter((parcela) => parcela.status === 'Vencida');
   const valorVencido = parcelasVencidas.reduce((total, parcela) => total + parcela.valor, 0);
@@ -648,17 +679,29 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
                   <div className="grid gap-4">
                     <ResumoFinanceiroObra obraId={selectedObra.id} />
                     <div className="grid gap-4 xl:grid-cols-2">
-                      <ObraEditForm obra={selectedObra} onDone={load} />
-                      <ObraDetalhe obra={selectedObra} socios={socios} onDone={load} />
+                      <ObraEditForm obra={selectedObra} onDone={() => void loadObras(true)} />
+                      <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => undefined} />
                     </div>
                   </div>
                 </Panel>
               )}
-              {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={load} />}
-              {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={load} />}
-              {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={load} />}
-              {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={load} />}
-              {activeTab === 'socios' && <SocioForm onDone={load} />}
+              {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={refreshOverview} />}
+              {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={() => undefined} />}
+              {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={refreshOverview} />}
+              {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={refreshOverview} />}
+              {activeTab === 'socios' && (
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <Panel title="Vincular socio a obra">
+                    <ObraDetalhe obra={selectedObra} socios={socios} onDone={() => undefined} />
+                  </Panel>
+                  <SocioForm onDone={(socio) => {
+                    if (socio) {
+                      setSocios((current) => current.some((item) => item.id === socio.id) ? current : [...current, socio].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')));
+                    }
+                    void loadSocios();
+                  }} />
+                </div>
+              )}
             </>
           ) : (
             <Panel title="Nenhuma obra selecionada">
@@ -807,7 +850,7 @@ function ObraEditForm({ obra, onDone }: { obra: Obra; onDone: () => void }) {
   );
 }
 
-function SocioForm({ onDone }: { onDone: () => void }) {
+function SocioForm({ onDone }: { onDone: (socio?: Socio) => void }) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -823,13 +866,13 @@ function SocioForm({ onDone }: { onDone: () => void }) {
       return;
     }
     setError('');
-    await api<Socio>('/api/socios', { method: 'POST', body: JSON.stringify({ nome, email, documento: '', telefone: '', ativo: true }) });
+    const socio = await api<Socio>('/api/socios', { method: 'POST', body: JSON.stringify({ nome, email, documento: '', telefone: '', ativo: true }) });
     setNome('');
     setEmail('');
-    onDone();
+    onDone(socio);
   }
   return (
-    <Panel title="Socios">
+    <Panel title="Cadastro global de socios">
       <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome" />
         <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
@@ -848,6 +891,7 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
   const [percentual, setPercentual] = useState('50');
   const [error, setError] = useState('');
   const canSubmit = !isBlank(socioId) && isPercentualValido(percentual);
+  const sociosDisponiveis = socios.filter((socio) => socio.ativo && !vinculos.some((vinculo) => vinculo.socioId === socio.id));
   useEffect(() => {
     setLoadingVinculos(true);
     api<ObraSocio[]>(`/api/obras/${obra.id}/socios`, { silent: true })
@@ -881,9 +925,16 @@ function ObraDetalhe({ obra, socios, onDone }: { obra: Obra; socios: Socio[]; on
   }
   return (
     <div className="grid gap-4">
+      <div>
+        <h3 className="section-title">Socios vinculados a esta obra</h3>
+      </div>
       <form onSubmit={submit} className="grid gap-2">
-        <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Selecionar socio</option>{socios.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select>
-        <input className="input" type="number" min="0" max="100" step="0.01" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="Percentual" />
+        <FormField label="Socio cadastrado">
+          <select className="input" value={socioId} onChange={(e) => setSocioId(e.target.value)}><option value="">Selecionar socio</option>{sociosDisponiveis.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select>
+        </FormField>
+        <FormField label="Participacao (%)">
+          <input className="input" type="number" min="0" max="100" step="0.01" value={percentual} onChange={(e) => setPercentual(e.target.value)} placeholder="Percentual" />
+        </FormField>
         {error && <ErrorText message={error} />}
         <button className="btn-primary" disabled={!canSubmit}>Vincular socio</button>
       </form>
@@ -970,10 +1021,12 @@ function SocioEditor({ socio, onSave, onRemove }: { socio: Socio; onSave: (socio
 
 function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   const [materiais, setMateriais] = useState<Material[]>([]);
+  const [catalogo, setCatalogo] = useState<MaterialCatalogo[]>([]);
   const [nome, setNome] = useState('');
   const [quantidade, setQuantidade] = useState('1');
   const [preco, setPreco] = useState('0,00');
   const [loading, setLoading] = useState(true);
+  const catalogoId = `catalogo-materiais-${obraId}`;
 
   async function load() {
     setLoading(true);
@@ -987,7 +1040,23 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     }
   }
 
-  useEffect(() => { void load(); }, [obraId]);
+  async function loadCatalogo() {
+    try {
+      setCatalogo(await api<MaterialCatalogo[]>('/api/obras/materiais/catalogo', { silent: true }));
+    } catch {
+      setCatalogo([]);
+    }
+  }
+
+  useEffect(() => { void load(); void loadCatalogo(); }, [obraId]);
+
+  function atualizarNome(value: string) {
+    setNome(value);
+    const item = catalogo.find((material) => material.nome.toLowerCase() === value.trim().toLowerCase());
+    if (item) {
+      setPreco(item.precoUnitario.toFixed(2).replace('.', ','));
+    }
+  }
 
   async function adicionar(event?: React.FormEvent) {
     if (event) event.preventDefault();
@@ -997,6 +1066,7 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
     const body = { nome: nome.trim(), quantidade: q, precoUnitario: p };
     const created = await api<Material>(`/api/obras/${obraId}/materiais`, { method: 'POST', body: JSON.stringify(body) });
     setMateriais((current) => [created, ...current]);
+    setCatalogo((current) => atualizarCatalogoMateriais(current, created, true));
     setNome(''); setQuantidade('1'); setPreco('0,00');
     onDone();
   }
@@ -1007,6 +1077,7 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
       body: JSON.stringify(changes)
     });
     setMateriais((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setCatalogo((current) => atualizarCatalogoMateriais(current, updated));
     onDone();
   }
 
@@ -1022,10 +1093,21 @@ function Materiais({ obraId, onDone }: { obraId: string; onDone: () => void }) {
   return (
     <Panel title="Materiais">
       <form onSubmit={adicionar} className="grid gap-2 sm:grid-cols-[1fr_120px_120px_auto]">
-        <input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do material" />
-        <input className="input" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Quantidade" />
-        <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="Preco unitario (ex: 12,50)" />
-        <button className="btn-primary" disabled={!nome.trim()}>Adicionar</button>
+        <FormField label="Material">
+          <input className="input" list={catalogoId} value={nome} onChange={(e) => atualizarNome(e.target.value)} placeholder="Nome do material" />
+          <datalist id={catalogoId}>
+            {catalogo.map((item) => (
+              <option key={item.nome} value={item.nome}>{money(item.precoUnitario)} · {item.usos} uso(s)</option>
+            ))}
+          </datalist>
+        </FormField>
+        <FormField label="Quantidade">
+          <input className="input" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="Qtd." />
+        </FormField>
+        <FormField label="Preco unitario">
+          <input className="input" value={preco} onChange={(e) => setPreco(e.target.value)} placeholder="Ex: 12,50" />
+        </FormField>
+        <button className="btn-primary self-end" disabled={!nome.trim()}>Adicionar</button>
       </form>
       <div className="mt-3 space-y-2">
         {materiais.length === 0 && <p className="rounded border border-zinc-200 px-3 py-2 text-sm text-zinc-500">Nenhum material registrado para esta obra.</p>}

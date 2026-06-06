@@ -68,6 +68,9 @@ public sealed class ObrasController(CRObrasService service) : ControllerBase
     [HttpGet("{id:guid}/materiais")]
     public async Task<IReadOnlyCollection<CRObras.Application.Obras.MaterialResponse>> ListarMateriais(Guid id, CancellationToken ct) => await service.ListarMateriaisAsync(id, ct);
 
+    [HttpGet("materiais/catalogo")]
+    public async Task<IReadOnlyCollection<CRObras.Application.Obras.MaterialCatalogoResponse>> ListarCatalogoMateriais(CancellationToken ct) => await service.ListarCatalogoMateriaisAsync(ct);
+
     [HttpPost("{id:guid}/materiais")]
     public async Task<CRObras.Application.Obras.MaterialResponse> CriarMaterial(Guid id, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct) => await service.CriarMaterialAsync(id, request, ct);
 

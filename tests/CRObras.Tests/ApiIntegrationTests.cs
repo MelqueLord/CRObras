@@ -97,6 +97,7 @@ public sealed class ApiIntegrationTests
         var atualizado = await updateResponse.Content.ReadFromJsonAsync<MaterialResponse>();
 
         var materiais = await client.GetFromJsonAsync<IReadOnlyCollection<MaterialResponse>>($"/api/obras/{obra.Id}/materiais");
+        var catalogo = await client.GetFromJsonAsync<IReadOnlyCollection<MaterialCatalogoResponse>>("/api/obras/materiais/catalogo");
         var deleteResponse = await client.DeleteAsync($"/api/obras/{obra.Id}/materiais/{criado.Id}");
         var materiaisAposRemocao = await client.GetFromJsonAsync<IReadOnlyCollection<MaterialResponse>>($"/api/obras/{obra.Id}/materiais");
 
@@ -104,6 +105,7 @@ public sealed class ApiIntegrationTests
         Assert.Equal(12, atualizado.Quantidade);
         Assert.Equal(34.9m, atualizado.PrecoUnitario);
         Assert.Contains(materiais!, material => material.Id == criado.Id && material.Nome == "Cimento CP II");
+        Assert.Contains(catalogo!, material => material.Nome == "Cimento CP II" && material.PrecoUnitario == 34.9m && material.Usos == 1);
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
         Assert.DoesNotContain(materiaisAposRemocao!, material => material.Id == criado.Id);
     }

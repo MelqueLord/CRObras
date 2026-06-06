@@ -325,6 +325,29 @@ public sealed class CRObrasService(IAppDbContext db)
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlyCollection<CRObras.Application.Obras.MaterialCatalogoResponse>> ListarCatalogoMateriaisAsync(CancellationToken ct)
+    {
+        var materiais = await db.Materiais.AsNoTracking()
+            .Where(m => m.Nome.Trim() != "")
+            .Select(m => new { m.Nome, m.PrecoUnitario })
+            .ToListAsync(ct);
+
+        return materiais
+            .GroupBy(m => m.Nome.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var precoMaisUsado = group
+                    .GroupBy(m => m.PrecoUnitario)
+                    .OrderByDescending(preco => preco.Count())
+                    .ThenByDescending(preco => preco.Key)
+                    .First()
+                    .Key;
+                return new CRObras.Application.Obras.MaterialCatalogoResponse(group.Key, precoMaisUsado, group.Count());
+            })
+            .OrderBy(item => item.Nome)
+            .ToList();
+    }
+
     public async Task<CRObras.Application.Obras.MaterialResponse> CriarMaterialAsync(Guid obraId, CRObras.Application.Obras.MaterialRequest request, CancellationToken ct)
     {
         var obra = await BuscarObraAsync(obraId, ct);
