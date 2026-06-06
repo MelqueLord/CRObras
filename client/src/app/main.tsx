@@ -415,6 +415,12 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
     });
     return ordenadas;
   }, [obrasFiltradas, ordenacaoObras]);
+  const opcoesObra = useMemo(() => {
+    if (!selectedObra || obrasVisiveis.some((obra) => obra.id === selectedObra.id)) {
+      return obrasVisiveis;
+    }
+    return [selectedObra, ...obrasVisiveis];
+  }, [obrasVisiveis, selectedObra]);
 
   async function load() {
     setLoadingObras(true);
@@ -513,152 +519,154 @@ function Workspace({ onError }: { onError: (message: string) => void }) {
   }
 
   const tabs = [
-    { id: 'resumo', label: 'Resumo' },
-    { id: 'financeiro', label: 'Financeiro' },
-    { id: 'materiais', label: 'Materiais' },
-    { id: 'venda', label: 'Venda' },
-    { id: 'encerramento', label: 'Encerramento' },
-    { id: 'socios', label: 'Socios' }
+    { id: 'resumo', label: 'Resumo', detail: 'Dados da obra' },
+    { id: 'financeiro', label: 'Caixa', detail: 'Aportes e despesas' },
+    { id: 'materiais', label: 'Materiais', detail: 'Itens comprados' },
+    { id: 'venda', label: 'Venda', detail: 'Parcelas e permutas' },
+    { id: 'encerramento', label: 'Fechamento', detail: 'Previa final' },
+    { id: 'socios', label: 'Socios', detail: 'Cadastros' }
   ];
   const parcelasVencidas = parcelasPendentes.filter((parcela) => parcela.status === 'Vencida');
   const valorVencido = parcelasVencidas.reduce((total, parcela) => total + parcela.valor, 0);
   const valorPendente = parcelasPendentes.reduce((total, parcela) => total + parcela.valor, 0);
 
   return (
-    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4 lg:grid-cols-[340px_1fr]">
-      <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-        <Panel title="Obras">
-          <ObraForm onCreated={addObra} />
-          <label className="mt-3 block">
-            <span className="field-label">Buscar obra</span>
-            <input ref={buscaObraRef} className="input" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Nome, endereco ou status" />
-          </label>
-          <div className="mt-3 grid grid-cols-2 gap-1">
-            {filtrosStatusObra.map((filtro) => (
-              <button
-                key={filtro.value}
-                className={`rounded border px-2 py-1.5 text-xs font-medium transition ${filtroStatusObra === filtro.value ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400'}`}
-                type="button"
-                onClick={() => setFiltroStatusObra(filtro.value)}
-              >
-                {filtro.label} ({totaisPorStatus.get(filtro.value) ?? 0})
-              </button>
-            ))}
-          </div>
-          <label className="mt-2 block">
-            <span className="field-label">Ordenacao</span>
-            <select className="input" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
-              <option value="nome">Nome</option>
-              <option value="status">Status</option>
-              <option value="saldoMaior">Maior saldo primeiro</option>
-              <option value="saldoMenor">Menor saldo primeiro</option>
-            </select>
-          </label>
-          <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
-          <div className="mt-3 max-h-[440px] space-y-2 overflow-auto pr-1">
-            {loadingObras && obras.length === 0 && <LoadingStrip />}
-            {obrasVisiveis.map((obra) => (
-              <button key={obra.id} className={`w-full rounded border px-3 py-2 text-left text-sm transition ${obraCardClass(obra, selectedObraId)}`} onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
-                <span className="flex items-start justify-between gap-2">
-                  <span className="font-medium">{obra.nome}</span>
-                  <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-medium ${obraStatusBadgeClass(obra.status, obra.id === selectedObraId)}`}>
-                    {obraStatusLabel(obra.status)}
-                  </span>
-                </span>
-                <span className="mt-1 block text-xs opacity-75">{money(obra.saldoAtual)}</span>
-              </button>
-            ))}
-            {!loadingObras && obras.length === 0 && <EmptyState title="Nenhuma obra cadastrada" text="O painel financeiro fica disponivel apos o primeiro cadastro." />}
-            {obras.length > 0 && obrasVisiveis.length === 0 && <EmptyState title="Nenhuma obra encontrada" text="Nao ha resultados para os filtros atuais." />}
-          </div>
-        </Panel>
-        <Panel title="Resumo geral">
-          {loadingDashboard && !dashboard && <LoadingStrip />}
-          <div className="grid grid-cols-2 gap-3">
-            <Metric label="Saldo" value={money(dashboard?.saldoTotal ?? 0)} />
-            <Metric label="Obras ativas" value={String(dashboard?.obrasAtivas ?? 0)} />
-            <Metric label="Investido" value={money(dashboard?.totalInvestido ?? 0)} />
-            <Metric label="Gasto" value={money(dashboard?.totalGasto ?? 0)} />
-          </div>
-        </Panel>
-        <Panel title="Recebiveis">
-          {loadingParcelas && parcelasPendentes.length === 0 && <LoadingStrip />}
-          <div className="grid grid-cols-2 gap-3">
-            <Metric label="Vencidas" value={String(parcelasVencidas.length)} />
-            <Metric label="Valor vencido" value={money(valorVencido)} />
-            <Metric label="Pendentes" value={String(parcelasPendentes.length)} />
-            <Metric label="Valor pendente" value={money(valorPendente)} />
-          </div>
-          <div className="mt-3 space-y-2">
-            {parcelasPendentes.slice(0, 4).map((parcela) => (
-              <button key={parcela.parcelaId} className={`w-full rounded border px-3 py-2 text-left text-sm ${parcela.status === 'Vencida' ? 'border-red-200 bg-red-50 text-red-800' : 'border-zinc-200 bg-white text-zinc-700'}`} onClick={() => { setSelectedObraId(parcela.obraId); setActiveTab('venda'); }}>
-                <span className="block font-medium">{parcela.obraNome} · Parcela {parcela.numero}</span>
-                <span className="text-xs opacity-75">{parcela.dataVencimento} · {money(parcela.valor)} · {parcela.status}</span>
-              </button>
-            ))}
-            {!loadingParcelas && parcelasPendentes.length === 0 && <EmptyState title="Sem pendencias" text="Nenhuma parcela pendente no momento." />}
-          </div>
-        </Panel>
-        <Panel title="Atalhos">
-          <div className="space-y-2">
-            {recentObras.length === 0 && <EmptyState title="Sem atalhos" text="As obras abertas recentemente aparecem aqui." />}
-            {recentObras.map((id) => {
-              const obra = obras.find((o) => o.id === id);
-              if (!obra) return null;
-              return (
-                <div key={id} className="flex items-center gap-2">
-                  <button className="flex-1 text-left rounded border px-3 py-2 text-sm" onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
-                    <div className="font-medium">{obra.nome}</div>
-                    <div className="text-xs text-zinc-500">{money(obra.saldoAtual)}</div>
-                  </button>
-                  <div className="flex gap-1">
-                    <button title="Abrir financeiro" className="btn-secondary text-xs" onClick={() => { setSelectedObraId(obra.id); setActiveTab('financeiro'); recordRecentObra(obra.id); }}>Fin</button>
-                    <button title="Remover atalho" className="btn-secondary text-xs" onClick={() => removeRecent(obra.id)}>Remover</button>
-                  </div>
+    <main className="mx-auto grid max-w-7xl gap-4 px-4 py-4">
+      <section className="grid gap-3 rounded border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-6">
+        {loadingDashboard && !dashboard && <div className="sm:col-span-2 xl:col-span-6"><LoadingStrip /></div>}
+        <Metric label="Saldo geral" value={money(dashboard?.saldoTotal ?? 0)} />
+        <Metric label="Obras ativas" value={String(dashboard?.obrasAtivas ?? 0)} />
+        <Metric label="Investido" value={money(dashboard?.totalInvestido ?? 0)} />
+        <Metric label="Gasto" value={money(dashboard?.totalGasto ?? 0)} />
+        <Metric label="Vencidas" value={String(parcelasVencidas.length)} />
+        <Metric label="A receber" value={money(valorPendente)} />
+      </section>
+
+      {parcelasVencidas.length > 0 && (
+        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span className="font-medium">{parcelasVencidas.length} parcela(s) vencida(s)</span>
+          <span className="ml-2">{money(valorVencido)}</span>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          <Panel title="Obra ativa">
+            {selectedObra && (
+              <div className="mb-3 rounded border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <div className="text-sm font-semibold text-zinc-950">{selectedObra.nome}</div>
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-zinc-500">
+                  <span>{obraStatusLabel(selectedObra.status)}</span>
+                  <span className="font-medium text-zinc-800">{money(selectedObra.saldoAtual)}</span>
                 </div>
-              );
-            })}
-            {recentObras.length > 0 && <div className="mt-2 text-right"><button className="text-xs text-zinc-600" onClick={clearRecent}>Limpar</button></div>}
-          </div>
-        </Panel>
-      </aside>
-      <section className="space-y-4">
-        {selectedObra ? (
-          <>
-            <ObraHeader obra={selectedObra} />
-            <div className="overflow-auto rounded border border-zinc-200 bg-white p-1 shadow-sm">
-              <div className="flex min-w-max gap-1">
+              </div>
+            )}
+            <label className="block">
+              <span className="field-label">Selecionar</span>
+              <select
+                className="input"
+                value={selectedObraId}
+                onChange={(event) => {
+                  setSelectedObraId(event.target.value);
+                  setActiveTab('resumo');
+                  if (event.target.value) recordRecentObra(event.target.value);
+                }}
+              >
+                <option value="">Selecionar obra</option>
+                {opcoesObra.map((obra) => (
+                  <option key={obra.id} value={obra.id}>{obra.nome}</option>
+                ))}
+              </select>
+            </label>
+            <label className="mt-3 block">
+              <span className="field-label">Buscar</span>
+              <input ref={buscaObraRef} className="input" value={buscaObra} onChange={(e) => setBuscaObra(e.target.value)} placeholder="Nome, endereco ou status" />
+            </label>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <label className="block">
+                <span className="field-label">Status</span>
+                <select className="input" value={filtroStatusObra} onChange={(event) => setFiltroStatusObra(event.target.value)}>
+                  {filtrosStatusObra.map((filtro) => (
+                    <option key={filtro.value} value={filtro.value}>{filtro.label} ({totaisPorStatus.get(filtro.value) ?? 0})</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="field-label">Ordenar</span>
+                <select className="input" value={ordenacaoObras} onChange={(e) => setOrdenacaoObras(e.target.value)} aria-label="Ordenar obras">
+                  <option value="nome">Nome</option>
+                  <option value="status">Status</option>
+                  <option value="saldoMaior">Maior saldo</option>
+                  <option value="saldoMenor">Menor saldo</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">{obrasVisiveis.length} de {obras.length} obra(s)</div>
+            {loadingObras && obras.length === 0 && <div className="mt-3"><LoadingStrip /></div>}
+            {!loadingObras && obras.length === 0 && <div className="mt-3"><EmptyState title="Nenhuma obra cadastrada" text="O painel financeiro fica disponivel apos o primeiro cadastro." /></div>}
+            {obras.length > 0 && obrasVisiveis.length === 0 && <div className="mt-3"><EmptyState title="Nenhuma obra encontrada" text="Nao ha resultados para os filtros atuais." /></div>}
+          </Panel>
+
+          <Panel title="Nova obra">
+            <ObraForm onCreated={addObra} />
+          </Panel>
+
+          {recentObras.length > 0 && (
+            <Panel title="Recentes">
+              <div className="space-y-2">
+                {recentObras.map((id) => {
+                  const obra = obras.find((o) => o.id === id);
+                  if (!obra) return null;
+                  return (
+                    <button key={id} className="w-full rounded border border-zinc-200 px-3 py-2 text-left text-sm transition hover:border-zinc-400" onClick={() => { setSelectedObraId(obra.id); setActiveTab('resumo'); recordRecentObra(obra.id); }}>
+                      <span className="block font-medium">{obra.nome}</span>
+                      <span className="text-xs text-zinc-500">{money(obra.saldoAtual)}</span>
+                    </button>
+                  );
+                })}
+                <button className="text-xs font-medium text-zinc-600" onClick={clearRecent}>Limpar recentes</button>
+              </div>
+            </Panel>
+          )}
+        </aside>
+
+        <section className="min-w-0 space-y-4">
+          {selectedObra ? (
+            <>
+              <ObraHeader obra={selectedObra} />
+              <nav className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6" aria-label="Navegacao da obra">
                 {tabs.map((tab) => (
-                  <button key={tab.id} className={`rounded px-3 py-2 text-sm font-medium transition ${activeTab === tab.id ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`} onClick={() => setActiveTab(tab.id)}>
-                    {tab.label}
+                  <button key={tab.id} className={`rounded border px-3 py-3 text-left transition ${activeTab === tab.id ? 'border-zinc-900 bg-zinc-900 text-white shadow-sm' : 'border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400'}`} onClick={() => setActiveTab(tab.id)}>
+                    <span className="block text-sm font-semibold">{tab.label}</span>
+                    <span className={`mt-1 block text-xs ${activeTab === tab.id ? 'text-white/70' : 'text-zinc-500'}`}>{tab.detail}</span>
                   </button>
                 ))}
-              </div>
-            </div>
+              </nav>
 
-            {activeTab === 'resumo' && (
-              <Panel title="Resumo da obra">
-                <div className="grid gap-4">
-                  <ResumoFinanceiroObra obraId={selectedObra.id} />
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <ObraEditForm obra={selectedObra} onDone={load} />
-                    <ObraDetalhe obra={selectedObra} socios={socios} onDone={load} />
+              {activeTab === 'resumo' && (
+                <Panel title="Resumo da obra">
+                  <div className="grid gap-4">
+                    <ResumoFinanceiroObra obraId={selectedObra.id} />
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <ObraEditForm obra={selectedObra} onDone={load} />
+                      <ObraDetalhe obra={selectedObra} socios={socios} onDone={load} />
+                    </div>
                   </div>
-                </div>
-              </Panel>
-            )}
-            {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={load} />}
-            {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={load} />}
-            {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={load} />}
-            {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={load} />}
-            {activeTab === 'socios' && <SocioForm onDone={load} />}
-          </>
-        ) : (
-          <Panel title="Nenhuma obra selecionada">
-            {loadingObras ? <LoadingStrip /> : <p className="text-sm text-zinc-500">Crie ou selecione uma obra no menu lateral.</p>}
-          </Panel>
-        )}
-      </section>
+                </Panel>
+              )}
+              {activeTab === 'financeiro' && <Financeiro obraId={selectedObra.id} onDone={load} />}
+              {activeTab === 'materiais' && <Materiais obraId={selectedObra.id} onDone={load} />}
+              {activeTab === 'venda' && <VendaBox obraId={selectedObra.id} onDone={load} />}
+              {activeTab === 'encerramento' && <Encerramento obra={selectedObra} onDone={load} />}
+              {activeTab === 'socios' && <SocioForm onDone={load} />}
+            </>
+          ) : (
+            <Panel title="Nenhuma obra selecionada">
+              {loadingObras ? <LoadingStrip /> : <p className="text-sm text-zinc-500">Crie ou selecione uma obra.</p>}
+            </Panel>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
@@ -726,12 +734,12 @@ function ObraForm({ onCreated }: { onCreated: (obra: Obra) => void }) {
   }
   return (
     <form onSubmit={submit} className="space-y-2">
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] lg:grid-cols-1 xl:grid-cols-[1fr_auto]">
+      <div className="grid gap-2">
         <label>
-          <span className="field-label">Nova obra</span>
+          <span className="field-label">Nome</span>
           <input className="input" required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da obra" />
         </label>
-        <button className="btn-primary self-end" disabled={!canSubmit}>Criar</button>
+        <button className="btn-primary" disabled={!canSubmit}>Criar obra</button>
       </div>
       {error && <ErrorText message={error} />}
     </form>
