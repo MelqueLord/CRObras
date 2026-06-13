@@ -18,9 +18,10 @@ CREATE TABLE IF NOT EXISTS "materiais" (
 );
 
 CREATE INDEX IF NOT EXISTS "IX_materiais_ObraId" ON "materiais"("ObraId");
-CREATE INDEX IF NOT EXISTS "IX_materiais_FornecedorId" ON "materiais"("FornecedorId");
 
 ALTER TABLE "materiais" ADD COLUMN IF NOT EXISTS "FornecedorId" uuid;
+
+CREATE INDEX IF NOT EXISTS "IX_materiais_FornecedorId" ON "materiais"("FornecedorId");
 
 DO $$
 BEGIN
